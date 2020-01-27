@@ -30,6 +30,10 @@ namespace Tmds.LinuxAsync
         public void Listen(int backlog) => _innerSocket.Listen(backlog);
         public void Connect(EndPoint remoteEP) => _innerSocket.Connect(remoteEP);
         public EndPoint LocalEndPoint  => _innerSocket.LocalEndPoint;
+        public EndPoint RemoteEndPoint  => _innerSocket.RemoteEndPoint;
+        public bool NoDelay { get => _innerSocket.NoDelay; set => _innerSocket.NoDelay = value; }
+        public bool DualMode { get => _innerSocket.DualMode; set => _innerSocket.DualMode = value; }
+        public void Shutdown(SocketShutdown how) => _innerSocket.Shutdown(how);
 
         // Dispose.
         private void Dispose(bool disposing)
