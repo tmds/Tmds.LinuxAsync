@@ -5,3 +5,18 @@ To compare implementations they need to be benchmarks, so the repo will expose a
 The async engine implementation should also allow implementing async operations for pipe-type `FileStream`.
 
 For accessing native system functions [Tmds.LibC](https://github.com/tmds/Tmds.LibC) is used. This avoid having to include a native shim library.
+
+# Tmds.LinuxAsync
+
+To use the `Socket` from this package, add these to the top of your code file:
+
+```c#
+using Socket = Tmds.LinuxAsync.Socket;
+using SocketAsyncEventArgs = Tmds.LinuxAsync.SocketAsyncEventArgs;
+```
+
+# Tmds.LinuxAsync.Transport
+
+This is a copy of ASP.NET Core [Transport.Sockets](https://github.com/dotnet/aspnetcore/tree/master/src/Servers/Kestrel/Transport.Sockets) that uses `Tmds.LinuxAsync.Socket` instead of `System.Net.Sockets.Socket`.
+
+The Transport can be used in ASP.NET Core by calling the `UseLinuxAsyncSockets` `IWebHostBuilder` extension methods.
