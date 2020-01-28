@@ -33,8 +33,8 @@ namespace Tmds.LinuxAsync
             CurrentOperation = System.Net.Sockets.SocketAsyncOperation.None;
 
             // Call OnCompleted only when completed async.
-            bool completedSync = (completionFlags & OperationCompletionFlags.CompletedSync) != 0;
-            if (completedSync)
+            bool completedAsync = (completionFlags & OperationCompletionFlags.CompletedSync) == 0;
+            if (completedAsync)
             {
                 if (context == null)
                 {
