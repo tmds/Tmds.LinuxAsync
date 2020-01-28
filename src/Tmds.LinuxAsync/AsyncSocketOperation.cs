@@ -53,7 +53,7 @@ namespace Tmds.LinuxAsync
             return false;
         }
 
-        public override bool TryExecute()
+        public override bool TryExecute(bool isSync)
         {
             bool finished = false;
 
@@ -61,7 +61,7 @@ namespace Tmds.LinuxAsync
             switch (Saea.CurrentOperation)
             {
                 case SocketAsyncOperation.Receive:
-                    finished = TryExecuteReceive();
+                    finished = TryExecuteReceive(isSync);
                     break;
                 case SocketAsyncOperation.Send:
                     finished = TryExecuteSend();
@@ -83,7 +83,7 @@ namespace Tmds.LinuxAsync
             return finished;
         }
 
-        private unsafe bool TryExecuteReceive()
+        private unsafe bool TryExecuteReceive(bool isSync)
         {
             Socket? socket = Saea.CurrentSocket;
             Memory<byte> memory = Saea.MemoryBuffer;
@@ -93,7 +93,17 @@ namespace Tmds.LinuxAsync
                 ThrowHelper.ThrowInvalidOperationException();
             }
 
-            (SocketError socketError, int bytesTransferred) = SocketPal.Recv(socket.SafeHandle, memory);
+            SocketError socketError;
+            int bytesTransferred;
+            if (!isSync && memory.Length == 0)
+            {
+                // Zero-byte read to check readable.
+                (socketError, bytesTransferred) = (SocketError.Success, 0);
+            }
+            else
+            {
+                (socketError, bytesTransferred) = SocketPal.Recv(socket.SafeHandle, memory);
+            }
 
             bool finished = socketError != SocketError.WouldBlock;
 

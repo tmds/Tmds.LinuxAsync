@@ -1,5 +1,4 @@
-﻿using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using static Tmds.Linux.LibC;
@@ -120,7 +119,7 @@ namespace Tmds.LinuxAsync
                         AsyncOperation? op = QueueGetFirst(tail);
                         while (op != null)
                         {
-                            if (op.TryExecute())
+                            if (op.TryExecute(isSync: false))
                             {
                                 QueueRemove(ref tail, op);
                                 QueueAdd(ref completedTail, op);
@@ -152,7 +151,7 @@ namespace Tmds.LinuxAsync
                         }
 
                         operation.CurrentAsyncContext = this;
-                        executed = _isReadable &&_readTail == null && operation.TryExecute();
+                        executed = _isReadable &&_readTail == null && operation.TryExecute(isSync: true);
 
                         if (!executed)
                         {
@@ -171,7 +170,7 @@ namespace Tmds.LinuxAsync
                         }
 
                         operation.CurrentAsyncContext = this;
-                        executed = _isWritable &&_writeTail == null && operation.TryExecute();
+                        executed = _isWritable &&_writeTail == null && operation.TryExecute(isSync: true);
 
                         if (!executed)
                         {
