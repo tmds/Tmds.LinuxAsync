@@ -26,6 +26,8 @@ namespace Tmds.LinuxAsync
             private int _fd;
             private State _state;
             private bool _setToNonBlocking;
+            private bool _isReadable;
+            private bool _isWritable;
 
             public int Key => _fd;
 
@@ -36,6 +38,9 @@ namespace Tmds.LinuxAsync
                 handle.DangerousAddRef(ref success);
                 _fd = handle.DangerousGetHandle().ToInt32();
                 _handle = handle;
+
+                _isReadable = _isWritable = true;
+                _epoll.Control(EPOLL_CTL_ADD, _fd, EPOLLIN | EPOLLOUT | EPOLLET, Key);
             }
 
             public override void Dispose()
@@ -89,18 +94,16 @@ namespace Tmds.LinuxAsync
 
                 AsyncOperation? completedTail = null;
 
-                bool configureEpoll = false;
-
                 // Try reading and writing.
                 bool tryReading = (events & POLLIN) != 0;
                 if (tryReading)
                 {
-                    TryExecuteQueuedOperations(_readGate, ref _readTail, ref completedTail, ref configureEpoll);
+                    TryExecuteQueuedOperations(_readGate, ref _readTail, ref completedTail, ref _isReadable);
                 }
                 bool tryWriting = (events & POLLOUT) != 0;
                 if (tryWriting)
                 {
-                    TryExecuteQueuedOperations(_writeGate, ref _writeTail, ref completedTail, ref configureEpoll);
+                    TryExecuteQueuedOperations(_writeGate, ref _writeTail, ref completedTail, ref _isWritable);
                 }
 
                 // Complete operations.
@@ -109,15 +112,11 @@ namespace Tmds.LinuxAsync
                     completedOp.Complete(OperationCompletionFlags.CompletedFinishedAsync);
                 }
 
-                if (configureEpoll)
-                {
-                    ConfigureEpoll();
-                }
-
-                static void TryExecuteQueuedOperations(object gate, ref AsyncOperation? tail, ref AsyncOperation? completedTail, ref bool configureEpoll)
+                static void TryExecuteQueuedOperations(object gate, ref AsyncOperation? tail, ref AsyncOperation? completedTail, ref bool xAble)
                 {
                     lock (gate)
                     {
+                        xAble = true;
                         AsyncOperation? op = QueueGetFirst(tail);
                         while (op != null)
                         {
@@ -129,10 +128,10 @@ namespace Tmds.LinuxAsync
                             }
                             else
                             {
+                                xAble = false;
                                 break;
                             }
                         }
-                        configureEpoll = tail != null;
                     }
                 }
             }
@@ -142,7 +141,6 @@ namespace Tmds.LinuxAsync
                 EnsureNonBlocking();
 
                 bool executed;
-                bool configureEpoll;
 
                 if (operation.IsReadNotWrite)
                 {
@@ -154,11 +152,13 @@ namespace Tmds.LinuxAsync
                         }
 
                         operation.CurrentAsyncContext = this;
+                        executed = _isReadable &&_readTail == null && operation.TryExecute();
 
-                        executed = false;
-                        configureEpoll = _readTail == null;
-
-                        QueueAdd(ref _readTail, operation);
+                        if (!executed)
+                        {
+                            _isReadable = false;
+                            QueueAdd(ref _readTail, operation);
+                        }
                     }
                 }
                 else
@@ -171,16 +171,11 @@ namespace Tmds.LinuxAsync
                         }
 
                         operation.CurrentAsyncContext = this;
-                        executed = _writeTail == null && operation.TryExecute();
+                        executed = _isWritable &&_writeTail == null && operation.TryExecute();
 
-                        if (executed)
+                        if (!executed)
                         {
-                            configureEpoll = false;
-                        }
-                        else
-                        {
-                            configureEpoll = _writeTail == null;
-
+                            _isWritable = false;
                             QueueAdd(ref _writeTail, operation);
                         }
                     }
@@ -189,10 +184,6 @@ namespace Tmds.LinuxAsync
                 if (executed)
                 {
                     operation.Complete(OperationCompletionFlags.CompletedFinishedSync);
-                }
-                if (configureEpoll)
-                {
-                    ConfigureEpoll();
                 }
 
                 return !executed;
@@ -212,36 +203,6 @@ namespace Tmds.LinuxAsync
                     SocketPal.SetNonBlocking(handle);
                     _setToNonBlocking = true;
                 }
-            }
-
-            private void ConfigureEpoll()
-            {
-                // Lock to avoid concurrent running with Dispose.
-                lock (_readGate)
-                    lock (_writeGate)
-                    {
-                        State state = _state;
-                        if (_state == State.Disposed)
-                        {
-                            ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
-                        }
-
-                        bool wasRegistered = _state == State.Registered;
-
-                        int controlEvents = EPOLLONESHOT |
-                                            (_readTail != null ? EPOLLIN : 0) |
-                                            (_writeTail != null ? EPOLLOUT : 0);
-
-                        _epoll.Control(wasRegistered ? EPOLL_CTL_MOD : EPOLL_CTL_ADD,
-                                            _fd,
-                                            controlEvents | EPOLLONESHOT,
-                                            _fd);
-
-                        if (!wasRegistered)
-                        {
-                            _state = State.Registered;
-                        }
-                    }
             }
 
             internal override bool TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
