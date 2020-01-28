@@ -18,6 +18,8 @@ namespace Tmds.LinuxAsync
         private OperationCompletionFlags _completionFlags;
         private bool _readNotWrite;
 
+        public short Version => _vts.Version;
+
         public AwaitableSocketOperation() :
             base()
         {

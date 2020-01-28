@@ -77,7 +77,7 @@ namespace Tmds.LinuxAsync
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
             }
-            return new ValueTask<int>(asyncOperation, 0); // TODO: token
+            return new ValueTask<int>(asyncOperation, asyncOperation.Version);
         }
 
         public ValueTask<int> SendAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
@@ -94,7 +94,7 @@ namespace Tmds.LinuxAsync
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
             }
-            return new ValueTask<int>(asyncOperation, 0); // TODO: token
+            return new ValueTask<int>(asyncOperation, asyncOperation.Version);
         }
 
         public ValueTask ConnectAsync(EndPoint endPoint, CancellationToken cancellationToken = default)
@@ -111,7 +111,7 @@ namespace Tmds.LinuxAsync
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
             }
-            return new ValueTask(asyncOperation, 0); // TODO: token
+            return new ValueTask(asyncOperation, asyncOperation.Version);
         }
 
         public Task<Socket> AcceptAsync(CancellationToken cancellationToken = default)
@@ -127,7 +127,7 @@ namespace Tmds.LinuxAsync
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
             }
-            return new ValueTask<Socket>(asyncOperation, 0).AsTask();
+            return new ValueTask<Socket>(asyncOperation, asyncOperation.Version).AsTask();
         }
 
         // Sync over Async implementation example.
@@ -150,7 +150,7 @@ namespace Tmds.LinuxAsync
                 }
                 mre.Wait();
             }
-            asyncOperation.GetResult(token: 0); // TODO: token
+            asyncOperation.GetResult(token: asyncOperation.Version);
         }
 
         private AwaitableSocketOperation RentAsyncOperation(SocketAsyncOperation operation)
