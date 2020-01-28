@@ -20,7 +20,7 @@ namespace Tmds.LinuxAsync
         public abstract void Complete(OperationCompletionFlags completionStatus);
 
         // Try to execute the operation. Returns true when done, false it should be tried again.
-        public abstract bool TryExecute();
+        public abstract bool TryExecute(bool isSync);
 
         // Requests operation to be cancelled.
         public bool TryCancelAndComplete(OperationCompletionFlags completionFlags = OperationCompletionFlags.None)
