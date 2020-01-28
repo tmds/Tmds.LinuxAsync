@@ -8,10 +8,11 @@ namespace Tmds.LinuxAsync
         None = 0,
 
         // Flags
-        CompletedSync = 1,    // AsyncContext.ExecuteAsync finished synchronously.
-        CancelledByToken = 2, // AsyncOperation was cancelled by a CancellationToken.
-        OperationFinished = 4,   // Operation completed by executing.
-        OperationCancelled = 8,  // operation completed by cancelling.
+        CompletedSync = 1,      // AsyncContext.ExecuteAsync finished synchronously.
+        CancelledByToken = 2,   // AsyncOperation was cancelled by a CancellationToken.
+        CancelledByTimeout = 4, // AsyncOperation was cancelled by a CancellationToken.
+        OperationFinished = 8,   // Operation completed by executing.
+        OperationCancelled = 16, // operation completed by cancelling.
 
         CompletedFinishedSync = OperationFinished | CompletedSync,
         CompletedFinishedAsync = OperationFinished,

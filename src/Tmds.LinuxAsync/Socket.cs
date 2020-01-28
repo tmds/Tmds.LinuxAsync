@@ -28,7 +28,6 @@ namespace Tmds.LinuxAsync
         // Delegate to _innerSocket.
         public void Bind(EndPoint localEP) => _innerSocket.Bind(localEP);
         public void Listen(int backlog) => _innerSocket.Listen(backlog);
-        public void Connect(EndPoint remoteEP) => _innerSocket.Connect(remoteEP);
         public EndPoint LocalEndPoint  => _innerSocket.LocalEndPoint;
         public EndPoint RemoteEndPoint  => _innerSocket.RemoteEndPoint;
         public bool NoDelay { get => _innerSocket.NoDelay; set => _innerSocket.NoDelay = value; }
@@ -68,10 +67,11 @@ namespace Tmds.LinuxAsync
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            AwaitableSocketOperation asyncOperation = RentReadOperation();
+            SocketAsyncOperation operation = SocketAsyncOperation.Receive;
+            AwaitableSocketOperation asyncOperation = RentAsyncOperation(operation);
             SocketAsyncEventArgs e = asyncOperation.Saea;
             e.SetBuffer(buffer);
-            e.StartOperationCommon(this, SocketAsyncOperation.Receive);
+            e.StartOperationCommon(this, operation);
             bool pending = AsyncContext.ExecuteAsync(asyncOperation);
             if (pending)
             {
@@ -84,10 +84,11 @@ namespace Tmds.LinuxAsync
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            AwaitableSocketOperation asyncOperation = RentReadOperation();
+            SocketAsyncOperation operation = SocketAsyncOperation.Send;
+            AwaitableSocketOperation asyncOperation = RentAsyncOperation(operation);
             SocketAsyncEventArgs e = asyncOperation.Saea;
             e.SetBuffer(buffer);
-            e.StartOperationCommon(this, SocketAsyncOperation.Send);
+            e.StartOperationCommon(this, operation);
             bool pending = AsyncContext.ExecuteAsync(asyncOperation);
             if (pending)
             {
@@ -96,29 +97,31 @@ namespace Tmds.LinuxAsync
             return new ValueTask<int>(asyncOperation, 0); // TODO: token
         }
 
-        public ValueTask<int> ConnectAsync(EndPoint endPoint, CancellationToken cancellationToken = default)
+        public ValueTask ConnectAsync(EndPoint endPoint, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            AwaitableSocketOperation asyncOperation = RentReadOperation();
+            SocketAsyncOperation operation = SocketAsyncOperation.Connect;
+            AwaitableSocketOperation asyncOperation = RentAsyncOperation(operation);
             SocketAsyncEventArgs e = asyncOperation.Saea;
             e.RemoteEndPoint = endPoint;
-            e.StartOperationCommon(this, SocketAsyncOperation.Connect);
+            e.StartOperationCommon(this, operation);
             bool pending = AsyncContext.ExecuteAsync(asyncOperation);
             if (pending)
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
             }
-            return new ValueTask<int>(asyncOperation, 0); // TODO: token
+            return new ValueTask(asyncOperation, 0); // TODO: token
         }
 
         public Task<Socket> AcceptAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            AwaitableSocketOperation asyncOperation = RentReadOperation();
+            SocketAsyncOperation operation = SocketAsyncOperation.Accept;
+            AwaitableSocketOperation asyncOperation = RentAsyncOperation(operation);
             SocketAsyncEventArgs e = asyncOperation.Saea;
-            e.StartOperationCommon(this, SocketAsyncOperation.Accept);
+            e.StartOperationCommon(this, operation);
             bool pending = AsyncContext.ExecuteAsync(asyncOperation);
             if (pending)
             {
@@ -127,7 +130,39 @@ namespace Tmds.LinuxAsync
             return new ValueTask<Socket>(asyncOperation, 0).AsTask();
         }
 
-        private AwaitableSocketOperation RentReadOperation()
-            => AsyncContext.RentReadOperation<AwaitableSocketOperation>();
+        // Sync over Async implementation example.
+        public void Connect(EndPoint endPoint, int msTimeout)
+        {
+            SocketAsyncOperation operation = SocketAsyncOperation.Connect;
+            AwaitableSocketOperation asyncOperation = RentAsyncOperation(operation);
+            SocketAsyncEventArgs e = asyncOperation.Saea;
+            e.RemoteEndPoint = endPoint;
+            e.StartOperationCommon(this, operation);
+            bool pending = AsyncContext.ExecuteAsync(asyncOperation);
+            if (pending)
+            {
+                using var mre = new ManualResetEventSlim();
+                asyncOperation.SetCompletedEvent(mre);
+                bool timedOut = !mre.Wait(msTimeout);
+                if (timedOut)
+                {
+                    asyncOperation.TryCancelAndComplete(OperationCompletionFlags.CancelledByTimeout);
+                }
+                mre.Wait();
+            }
+            asyncOperation.GetResult(token: 0); // TODO: token
+        }
+
+        private AwaitableSocketOperation RentAsyncOperation(SocketAsyncOperation operation)
+        {
+            if (AsyncSocketOperation.IsOperationReadNotWrite(operation))
+            {
+                return AsyncContext.RentReadOperation<AwaitableSocketOperation>();
+            }
+            else
+            {
+                return AsyncContext.RentWriteOperation<AwaitableSocketOperation>();
+            }
+        }
     }
 }

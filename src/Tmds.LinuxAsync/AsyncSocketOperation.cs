@@ -24,33 +24,33 @@ namespace Tmds.LinuxAsync
         { }
 
         public override bool IsReadNotWrite
+            => IsOperationReadNotWrite(Saea.CurrentOperation);
+
+        public static bool IsOperationReadNotWrite(SocketAsyncOperation operation)
         {
-            get
+            switch (operation)
             {
-                SocketAsyncOperation currentOperation = Saea.CurrentOperation;
-                switch (currentOperation)
-                {
-                    case SocketAsyncOperation.Receive:
-                    case SocketAsyncOperation.Accept:
-                        return true;
-                    case SocketAsyncOperation.Send:
-                    case SocketAsyncOperation.Connect:
-                        return false;
-                    // case SocketAsyncOperation.ReceiveFrom:
-                    // case SocketAsyncOperation.ReceiveMessageFrom:
-                    // case SocketAsyncOperation.SendPackets:
-                    // case SocketAsyncOperation.SendTo:
-                    // case SocketAsyncOperation.Accept:
-                    // case SocketAsyncOperation.Connect:
-                    // case SocketAsyncOperation.Disconnect:
-                    case SocketAsyncOperation.None:
-                        ThrowHelper.ThrowInvalidOperationException();
-                        return false;
-                    default:
-                        ThrowHelper.ThrowIndexOutOfRange(currentOperation);
-                        return false;
-                }
+                case SocketAsyncOperation.Receive:
+                case SocketAsyncOperation.Accept:
+                    return true;
+                case SocketAsyncOperation.Send:
+                case SocketAsyncOperation.Connect:
+                    return false;
+                // case SocketAsyncOperation.ReceiveFrom:
+                // case SocketAsyncOperation.ReceiveMessageFrom:
+                // case SocketAsyncOperation.SendPackets:
+                // case SocketAsyncOperation.SendTo:
+                // case SocketAsyncOperation.Accept:
+                // case SocketAsyncOperation.Connect:
+                // case SocketAsyncOperation.Disconnect:
+                case SocketAsyncOperation.None:
+                    ThrowHelper.ThrowInvalidOperationException();
+                    break;
+                default:
+                    ThrowHelper.ThrowIndexOutOfRange(operation);
+                    break;
             }
+            return false;
         }
 
         public override bool TryExecute()
