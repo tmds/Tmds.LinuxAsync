@@ -9,12 +9,22 @@ namespace Tmds.LinuxAsync
     {
         sealed class EPollAsyncContext : AsyncContext
         {
-            enum State
+            sealed class AsyncOperationSentinel : AsyncOperation
             {
-                Unregistered = 0,
-                Registered = 1,
-                Disposed = 8
+                public override bool IsReadNotWrite => throw new System.InvalidOperationException();
+
+                public override void Complete(OperationCompletionFlags completionStatus)
+                {
+                    throw new System.InvalidOperationException();
+                }
+
+                public override bool TryExecute(bool isSync)
+                {
+                    throw new System.InvalidOperationException();
+                }
             }
+
+            private static readonly AsyncOperationSentinel DisposedSentinel = new AsyncOperationSentinel();
 
             private readonly object _readGate = new object();
             private readonly object _writeGate = new object();
@@ -23,10 +33,7 @@ namespace Tmds.LinuxAsync
             private readonly EPollThread _epoll;
             private SafeHandle? _handle;
             private int _fd;
-            private State _state;
             private bool _setToNonBlocking;
-            private bool _isReadable;
-            private bool _isWritable;
 
             public int Key => _fd;
 
@@ -38,7 +45,6 @@ namespace Tmds.LinuxAsync
                 _fd = handle.DangerousGetHandle().ToInt32();
                 _handle = handle;
 
-                _isReadable = _isWritable = true;
                 _epoll.Control(EPOLL_CTL_ADD, _fd, EPOLLIN | EPOLLOUT | EPOLLET, Key);
             }
 
@@ -48,31 +54,32 @@ namespace Tmds.LinuxAsync
                 AsyncOperation? writeTail;
 
                 lock (_readGate)
-                    lock (_writeGate)
+                {
+                    readTail = _readTail;
+                    _readTail = null;
+
+                    if (readTail == DisposedSentinel)
                     {
-                        if (_state == State.Disposed)
-                        {
-                            return;
-                        }
-                        _state = State.Disposed;
-
-                        _epoll.RemoveContext(Key);
-
-                        readTail = _readTail;
-                        _readTail = null;
-                        writeTail = _writeTail;
-                        _writeTail = null;
-
-                        if (_handle != null)
-                        {
-                            _handle.DangerousRelease();
-                            _fd = -1;
-                            _handle = null;
-                        }
+                        return;
                     }
+                }
+                lock (_writeGate)
+                {
+                    writeTail = _writeTail;
+                    _writeTail = null;
+                }
 
                 CompleteOperationsCancelled(ref readTail);
                 CompleteOperationsCancelled(ref writeTail);
+
+                _epoll.RemoveContext(Key);
+
+                if (_handle != null)
+                {
+                    _handle.DangerousRelease();
+                    _fd = -1;
+                    _handle = null;
+                }
 
                 static void CompleteOperationsCancelled(ref AsyncOperation? tail)
                 {
@@ -97,12 +104,12 @@ namespace Tmds.LinuxAsync
                 bool tryReading = (events & POLLIN) != 0;
                 if (tryReading)
                 {
-                    TryExecuteQueuedOperations(_readGate, ref _readTail, ref completedTail, ref _isReadable);
+                    TryExecuteQueuedOperations(_readGate, ref _readTail, ref completedTail);
                 }
                 bool tryWriting = (events & POLLOUT) != 0;
                 if (tryWriting)
                 {
-                    TryExecuteQueuedOperations(_writeGate, ref _writeTail, ref completedTail, ref _isWritable);
+                    TryExecuteQueuedOperations(_writeGate, ref _writeTail, ref completedTail);
                 }
 
                 // Complete operations.
@@ -111,11 +118,15 @@ namespace Tmds.LinuxAsync
                     completedOp.Complete(OperationCompletionFlags.CompletedFinishedAsync);
                 }
 
-                static void TryExecuteQueuedOperations(object gate, ref AsyncOperation? tail, ref AsyncOperation? completedTail, ref bool xAble)
+                static void TryExecuteQueuedOperations(object gate, ref AsyncOperation? tail, ref AsyncOperation? completedTail)
                 {
                     lock (gate)
                     {
-                        xAble = true;
+                        if (tail == DisposedSentinel)
+                        {
+                            return;
+                        }
+
                         AsyncOperation? op = QueueGetFirst(tail);
                         while (op != null)
                         {
@@ -127,7 +138,6 @@ namespace Tmds.LinuxAsync
                             }
                             else
                             {
-                                xAble = false;
                                 break;
                             }
                         }
@@ -139,53 +149,62 @@ namespace Tmds.LinuxAsync
             {
                 EnsureNonBlocking();
 
-                bool executed;
-
-                if (operation.IsReadNotWrite)
+                try
                 {
-                    lock (_readGate)
+                    operation.Next = operation;
+                    operation.CurrentAsyncContext = this;
+
+                    bool executed;
+
+                    if (operation.IsReadNotWrite)
                     {
-                        if (_state == State.Disposed)
+                        lock (_readGate)
                         {
-                            ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
-                        }
+                            if (_readTail == DisposedSentinel)
+                            {
+                                ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
+                            }
 
-                        operation.CurrentAsyncContext = this;
-                        executed = _isReadable &&_readTail == null && operation.TryExecute(isSync: true);
+                            executed = _readTail == null && operation.TryExecute(isSync: true);
 
-                        if (!executed)
-                        {
-                            _isReadable = false;
-                            QueueAdd(ref _readTail, operation);
+                            if (!executed)
+                            {
+                                QueueAdd(ref _readTail, operation);
+                            }
                         }
                     }
-                }
-                else
-                {
-                    lock (_writeGate)
+                    else
                     {
-                        if (_state == State.Disposed)
+                        lock (_writeGate)
                         {
-                            ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
-                        }
+                            if (_writeTail == DisposedSentinel)
+                            {
+                                ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
+                            }
 
-                        operation.CurrentAsyncContext = this;
-                        executed = _isWritable &&_writeTail == null && operation.TryExecute(isSync: true);
+                            executed = _writeTail == null && operation.TryExecute(isSync: true);
 
-                        if (!executed)
-                        {
-                            _isWritable = false;
-                            QueueAdd(ref _writeTail, operation);
+                            if (!executed)
+                            {
+                                QueueAdd(ref _writeTail, operation);
+                            }
                         }
                     }
-                }
 
-                if (executed)
+                    if (executed)
+                    {
+                        operation.Complete(OperationCompletionFlags.CompletedFinishedSync);
+                    }
+
+                    return !executed;
+                }
+                catch
                 {
-                    operation.Complete(OperationCompletionFlags.CompletedFinishedSync);
-                }
+                    operation.Next = null;
+                    operation.CurrentAsyncContext = null;
 
-                return !executed;
+                    throw;
+                }
             }
 
             private void EnsureNonBlocking()
