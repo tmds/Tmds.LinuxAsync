@@ -23,16 +23,12 @@ namespace Tmds.LinuxAsync
         public abstract bool TryExecute(bool isSync);
 
         // Requests operation to be cancelled.
-        public bool TryCancelAndComplete(OperationCompletionFlags completionFlags = OperationCompletionFlags.None)
+        public void TryCancelAndComplete(OperationCompletionFlags completionFlags = OperationCompletionFlags.None)
         {
             AsyncContext? context = CurrentAsyncContext;
             if (context != null)
             {
-                return context.TryCancelAndComplete(this, completionFlags);
-            }
-            else
-            {
-                return false;
+                context.TryCancelAndComplete(this, completionFlags);
             }
         }
     }

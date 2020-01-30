@@ -109,12 +109,20 @@ namespace Tmds.LinuxAsync
             _completionFlags = completionFlags;
             Saea.Complete(completionFlags);
 
-            _vts.SetResult(0);
+            if ((completionFlags & OperationCompletionFlags.CompletedCanceledSync) == OperationCompletionFlags.CompletedCanceledSync)
+            {
+                // Caller threw an exception which prevents further use of this.
+                ResetAndReturnThis();
+            }
+            else
+            {
+                _vts.SetResult(0);
 
-            ManualResetEventSlim? mre = Interlocked.Exchange(ref _mre, s_completedSentinel);
-            // This ManualResetEventSlim is used to wait until the operation completed.
-            // After that a direct call is made to get the result.
-            mre?.Set();
+                ManualResetEventSlim? mre = Interlocked.Exchange(ref _mre, s_completedSentinel);
+                // This ManualResetEventSlim is used to wait until the operation completed.
+                // After that a direct call is made to get the result.
+                mre?.Set();
+            }
         }
 
         private void ResetAndReturnThis()
