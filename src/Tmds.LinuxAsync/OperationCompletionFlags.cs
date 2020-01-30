@@ -17,5 +17,6 @@ namespace Tmds.LinuxAsync
         CompletedFinishedSync = OperationFinished | CompletedSync,
         CompletedFinishedAsync = OperationFinished,
         CompletedCanceled = OperationCancelled,
+        CompletedCanceledSync = OperationCancelled | CompletedSync,
     }
 }

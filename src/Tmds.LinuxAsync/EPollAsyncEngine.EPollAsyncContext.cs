@@ -203,7 +203,8 @@ namespace Tmds.LinuxAsync
                 catch
                 {
                     operation.Next = null;
-                    operation.CurrentAsyncContext = null;
+
+                    operation.Complete(OperationCompletionFlags.CompletedCanceledSync);
 
                     throw;
                 }
@@ -225,7 +226,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            internal override bool TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
+            internal override void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
             {
                 bool found = false;
 
@@ -248,8 +249,6 @@ namespace Tmds.LinuxAsync
                 {
                     operation.Complete(OperationCompletionFlags.CompletedCanceled | flags);
                 }
-
-                return found;
             }
 
             // Queue operations.
