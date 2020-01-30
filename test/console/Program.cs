@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using Socket = Tmds.LinuxAsync.Socket;
+using SocketAsyncEventArgs = Tmds.LinuxAsync.SocketAsyncEventArgs;
 using System.Text;
 
 namespace console

@@ -16,6 +16,8 @@ namespace Tmds.LinuxAsync
         private int _count;
         // private bool _bufferIsExplicitArray;
 
+        IList<ArraySegment<byte>>? _bufferList;
+
         // Misc state variables.
         private readonly bool _flowExecutionContext;
         private ExecutionContext? _context;
@@ -45,7 +47,7 @@ namespace Tmds.LinuxAsync
         public Socket? ConnectSocket { get; }
         public Exception? ConnectByNameError { get; }
         public int BytesTransferred { get; internal set; }
-        public IList<ArraySegment<byte>>? BufferList { get; set; }
+        public IList<ArraySegment<byte>>? BufferList { get => _bufferList; set => _bufferList = value; }
         public byte[]? Buffer { get; }
         public Socket? AcceptSocket { get; set; }
         public object? UserToken { get; set; }
@@ -79,7 +81,21 @@ namespace Tmds.LinuxAsync
         }
 
         public void SetBuffer(int offset, int count) { throw new NotImplementedException(); }
-        public void SetBuffer(byte[] buffer, int offset, int count) { throw new NotImplementedException(); }
+        public void SetBuffer(byte[] buffer, int offset, int count)
+        {
+            if (buffer == null)
+            {
+                // Clear out existing buffer.
+                _buffer = default;
+                _offset = 0;
+                _count = 0;
+                // _bufferIsExplicitArray = false;
+            }
+            else
+            {
+                throw new NotImplementedException();
+            }
+        }
 
         protected virtual void OnCompleted(SocketAsyncEventArgs e)
         {
