@@ -133,6 +133,32 @@ namespace Tmds.LinuxAsync
             return rv == -1 ? GetSocketErrorForErrno(errno) : SocketError.Success;
         }
 
+        internal static unsafe (SocketError socketError, int bytesTransferred) SendMsg(SafeSocketHandle handle, msghdr* msghdr)
+        {
+            int bytesTransferred;
+            SocketError socketError;
+
+            int fd = handle.DangerousGetHandle().ToInt32(); // TODO: make safe
+            int rv;
+            do
+            {
+                rv = (int)sendmsg(fd, msghdr, 0);
+            } while (rv == -1 && errno == EINTR);
+
+            if (rv < 0)
+            {
+                bytesTransferred = 0;
+                socketError = GetSocketErrorForErrno(errno);
+            }
+            else
+            {
+                bytesTransferred = rv;
+                socketError = SocketError.Success;
+            }
+
+            return (socketError, bytesTransferred);
+        }
+
         public unsafe static (SocketError socketError, Socket? acceptedSocket) Accept(SafeHandle handle)
         {
             int fd = handle.DangerousGetHandle().ToInt32(); // TODO: make safe
@@ -204,7 +230,7 @@ namespace Tmds.LinuxAsync
 
             // static unsafe SafeCloseSocket CreateSocket(IntPtr fileDescriptor)
             var fileDescriptor = new IntPtr(fd);
-            var safeCloseSocket = reflectionMethods.SafeCloseSocketCreate.Invoke(null, new object [] { fileDescriptor });
+            var safeCloseSocket = reflectionMethods.SafeCloseSocketCreate.Invoke(null, new object[] { fileDescriptor });
 
             // private Socket(SafeCloseSocket fd)
             var socket = reflectionMethods.SocketConstructor.Invoke(new[] { safeCloseSocket });
@@ -247,7 +273,7 @@ namespace Tmds.LinuxAsync
 
             return new Socket((System.Net.Sockets.Socket)socket);
         }
-        
+
         static ReflectionMethods s_reflectionMethods = LookupMethods();
 
         private class ReflectionMethods
@@ -276,7 +302,7 @@ namespace Tmds.LinuxAsync
             {
                 ThrowNotSupported(nameof(safeCloseSocketCreate));
             }
-            ConstructorInfo socketConstructor = typeof(System.Net.Sockets.Socket).GetTypeInfo().GetConstructor(BindingFlags.Public | BindingFlags.NonPublic| BindingFlags.Instance, null, new[] { safeCloseSocketType }, null);
+            ConstructorInfo socketConstructor = typeof(System.Net.Sockets.Socket).GetTypeInfo().GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { safeCloseSocketType }, null);
             if (socketConstructor == null)
             {
                 ThrowNotSupported(nameof(socketConstructor));
@@ -319,7 +345,7 @@ namespace Tmds.LinuxAsync
             {
                 ThrowNotSupported(nameof(unixDomainSocketEndPointType));
             }
-            ConstructorInfo unixDomainSocketEndPointConstructor = unixDomainSocketEndPointType.GetTypeInfo().GetConstructor(BindingFlags.Public | BindingFlags.NonPublic| BindingFlags.Instance, null, new[] { typeof(string) }, null);
+            ConstructorInfo unixDomainSocketEndPointConstructor = unixDomainSocketEndPointType.GetTypeInfo().GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(string) }, null);
             if (unixDomainSocketEndPointConstructor == null)
             {
                 ThrowNotSupported(nameof(unixDomainSocketEndPointConstructor));
