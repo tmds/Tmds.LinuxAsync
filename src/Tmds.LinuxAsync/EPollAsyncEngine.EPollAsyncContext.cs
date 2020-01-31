@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
+using System.Threading;
 using static Tmds.Linux.LibC;
 
 namespace Tmds.LinuxAsync
@@ -34,6 +35,7 @@ namespace Tmds.LinuxAsync
             private SafeHandle? _handle;
             private int _fd;
             private bool _setToNonBlocking;
+            private int _eventCounter;
 
             public int Key => _fd;
 
@@ -106,44 +108,60 @@ namespace Tmds.LinuxAsync
                 bool tryReading = (events & POLLIN) != 0;
                 if (tryReading)
                 {
-                    TryExecuteQueuedOperations(_readGate, ref _readTail, ref completedTail);
+                    lock (_readGate)
+                    {
+                        _eventCounter++;
+
+                        if (_readTail is {} && _readTail != DisposedSentinel)
+                        {
+                            AsyncOperation? op = QueueGetFirst(_readTail);
+                            while (op != null)
+                            {
+                                if (op.TryExecute(isSync: false))
+                                {
+                                    QueueRemove(ref _readTail, op);
+                                    QueueAdd(ref completedTail, op);
+                                    op = QueueGetFirst(_readTail);
+                                }
+                                else
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
                 bool tryWriting = (events & POLLOUT) != 0;
                 if (tryWriting)
                 {
-                    TryExecuteQueuedOperations(_writeGate, ref _writeTail, ref completedTail);
+                    lock (_writeGate)
+                    {
+                        _eventCounter++;
+
+                        if (_writeTail is {} && _writeTail != DisposedSentinel)
+                        {
+                            AsyncOperation? op = QueueGetFirst(_writeTail);
+                            while (op != null)
+                            {
+                                if (op.TryExecute(isSync: false))
+                                {
+                                    QueueRemove(ref _writeTail, op);
+                                    QueueAdd(ref completedTail, op);
+                                    op = QueueGetFirst(_writeTail);
+                                }
+                                else
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Complete operations.
                 while (TryQueueTakeFirst(ref completedTail, out AsyncOperation? completedOp))
                 {
                     completedOp.Complete(OperationCompletionFlags.CompletedFinishedAsync);
-                }
-
-                static void TryExecuteQueuedOperations(object gate, ref AsyncOperation? tail, ref AsyncOperation? completedTail)
-                {
-                    lock (gate)
-                    {
-                        if (tail == DisposedSentinel)
-                        {
-                            return;
-                        }
-
-                        AsyncOperation? op = QueueGetFirst(tail);
-                        while (op != null)
-                        {
-                            if (op.TryExecute(isSync: false))
-                            {
-                                QueueRemove(ref tail, op);
-                                QueueAdd(ref completedTail, op);
-                                op = QueueGetFirst(tail);
-                            }
-                            else
-                            {
-                                break;
-                            }
-                        }
-                    }
                 }
             }
 
@@ -156,39 +174,71 @@ namespace Tmds.LinuxAsync
                     operation.Next = operation;
                     operation.CurrentAsyncContext = this;
 
-                    bool executed;
+                    bool executed = false;
 
                     if (operation.IsReadNotWrite)
                     {
-                        lock (_readGate)
+                        int? eventCounterSnapshot = null;
+
+                        // Try executing without a lock.
+                        if (Volatile.Read(ref _readTail) == null)
                         {
-                            if (_readTail == DisposedSentinel)
-                            {
-                                ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
-                            }
+                            eventCounterSnapshot = Volatile.Read(ref _eventCounter);
+                            executed = operation.TryExecute(isSync: true);
+                        }
 
-                            executed = _readTail == null && operation.TryExecute(isSync: true);
-
-                            if (!executed)
+                        if (!executed)
+                        {
+                            lock (_readGate)
                             {
-                                QueueAdd(ref _readTail, operation);
+                                if (_readTail == DisposedSentinel)
+                                {
+                                    ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
+                                }
+
+                                // Execute under lock.
+                                if (_readTail == null && _eventCounter != eventCounterSnapshot)
+                                {
+                                    executed = operation.TryExecute(isSync: true);
+                                }
+
+                                if (!executed)
+                                {
+                                    QueueAdd(ref _readTail, operation);
+                                }
                             }
                         }
                     }
                     else
                     {
-                        lock (_writeGate)
+                        int? eventCounterSnapshot = null;
+
+                        // Try executing without a lock.
+                        if (Volatile.Read(ref _writeTail) == null)
                         {
-                            if (_writeTail == DisposedSentinel)
-                            {
-                                ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
-                            }
+                            eventCounterSnapshot = Volatile.Read(ref _eventCounter);
+                            executed = operation.TryExecute(isSync: true);
+                        }
 
-                            executed = _writeTail == null && operation.TryExecute(isSync: true);
-
-                            if (!executed)
+                        if (!executed)
+                        {
+                            lock (_writeGate)
                             {
-                                QueueAdd(ref _writeTail, operation);
+                                if (_writeTail == DisposedSentinel)
+                                {
+                                    ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
+                                }
+
+                                // Execute under lock.
+                                if (_writeTail == null && _eventCounter != eventCounterSnapshot)
+                                {
+                                    executed = operation.TryExecute(isSync: true);
+                                }
+
+                                if (!executed)
+                                {
+                                    QueueAdd(ref _writeTail, operation);
+                                }
                             }
                         }
                     }
