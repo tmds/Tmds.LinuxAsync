@@ -15,8 +15,24 @@ using Socket = Tmds.LinuxAsync.Socket;
 using SocketAsyncEventArgs = Tmds.LinuxAsync.SocketAsyncEventArgs;
 ```
 
+```c#
+class SocketAsyncEventArgs
+{
+  public bool RunContinuationsAsynchronously { get; set; } = true;
+}
+```
+
+Setting `RunContinuationsAsynchronously` to `false` allows `SocketAsyncEngine` to invoke callbacks directly from the epoll thread. This avoid context switching cost.
+
 # Tmds.LinuxAsync.Transport
 
 This is a copy of ASP.NET Core [Transport.Sockets](https://github.com/dotnet/aspnetcore/tree/master/src/Servers/Kestrel/Transport.Sockets) that uses `Tmds.LinuxAsync.Socket` instead of `System.Net.Sockets.Socket`.
 
 The Transport can be used in ASP.NET Core by calling the `UseLinuxAsyncSockets` `IWebHostBuilder` extension methods.
+
+```c#
+class SocketTransportOptions
+{
+  public bool RunContinuationsAsynchronously { get; set; } = true;
+}
+```

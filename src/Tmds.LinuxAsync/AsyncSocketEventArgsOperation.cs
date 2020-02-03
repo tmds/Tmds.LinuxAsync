@@ -13,12 +13,14 @@ namespace Tmds.LinuxAsync
 
         public override void Complete(OperationCompletionFlags competionStatus)
         {
+            bool runContinuationsAsync = Saea.RunContinuationsAsynchronously;
+
             ResetOperationState();
 
             _competionStatus = competionStatus;
 
             bool completeSync = (competionStatus & OperationCompletionFlags.CompletedSync) != 0;
-            if (completeSync)
+            if (completeSync || !runContinuationsAsync)
             {
                 ((IThreadPoolWorkItem)this).Execute();
             }

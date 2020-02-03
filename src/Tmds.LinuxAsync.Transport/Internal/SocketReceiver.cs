@@ -9,7 +9,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
 {
     internal sealed class SocketReceiver : SocketSenderReceiverBase
     {
-        public SocketReceiver(Socket socket, PipeScheduler scheduler) : base(socket, scheduler)
+        public SocketReceiver(Socket socket, PipeScheduler scheduler, bool runContinuationsAsynchronously) : base(socket, scheduler, runContinuationsAsynchronously)
         {
         }
 

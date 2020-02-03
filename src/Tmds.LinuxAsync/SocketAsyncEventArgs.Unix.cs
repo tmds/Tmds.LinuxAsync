@@ -8,6 +8,8 @@ namespace Tmds.LinuxAsync
         // Used for executing this operation on an AsyncContext.
         internal AsyncSocketOperation AsyncOperation { get; }
 
+        public bool RunContinuationsAsynchronously { get; set; } = true;
+
         public SocketAsyncEventArgs(bool unsafeSuppressExecutionContextFlow = false) :
             this(false, null)
         { }
