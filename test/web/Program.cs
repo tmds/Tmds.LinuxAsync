@@ -21,7 +21,11 @@ namespace web
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseStartup<Startup>();
-                    webBuilder.UseLinuxAsyncSockets();
+                    webBuilder.UseLinuxAsyncSockets(options =>
+                        {
+                            // options.RunContinuationsAsynchronously = false;
+                        }
+                    );
                 });
     }
 }

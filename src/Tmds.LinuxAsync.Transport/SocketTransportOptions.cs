@@ -37,5 +37,7 @@ namespace Tmds.LinuxAsync.Transport
         public long? MaxWriteBufferSize { get; set; } = 64 * 1024;
 
         internal Func<MemoryPool<byte>> MemoryPoolFactory { get; set; } = System.Buffers.SlabMemoryPoolFactory.Create;
+
+        public bool RunContinuationsAsynchronously { get; set; } = true;
     }
 }

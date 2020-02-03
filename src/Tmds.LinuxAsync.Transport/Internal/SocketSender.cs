@@ -15,7 +15,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
     {
         private List<ArraySegment<byte>> _bufferList;
 
-        public SocketSender(Socket socket, PipeScheduler scheduler) : base(socket, scheduler)
+        public SocketSender(Socket socket, PipeScheduler scheduler, bool runContinuationsAsynchronously) : base(socket, scheduler, runContinuationsAsynchronously)
         {
         }
 
