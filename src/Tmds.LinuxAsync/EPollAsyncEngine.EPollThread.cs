@@ -65,6 +65,9 @@ namespace Tmds.LinuxAsync
                     while (running)
                     {
                         int rv = epoll_wait(_epollFd, eventBuffer, EventBufferLength, epollTimeout);
+
+                        Volatile.Write(ref _epollState, EPollNotBlocked);
+
                         if (rv == -1)
                         {
                             if (LibC.errno == EINTR)
