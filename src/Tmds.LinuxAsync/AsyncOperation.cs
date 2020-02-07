@@ -67,6 +67,11 @@ namespace Tmds.LinuxAsync
         public bool TryExecuteSync()
             => TryExecute(triggeredByPoll: false, executionQueue: null, callback: null, state: null, data: 0, default) == AsyncExecutionResult.Finished;
 
+        // Continues execution of this operation.
+        // In case this method is called due to poll indicating the handle is ready, triggeredByPoll is true.
+        // The executionQueue (when not null) can be used to batch the operation.
+        //   callback, state, and data must be passed to the executionQueue.
+        // When the batched operation is done, the method is called again and result has a value.
         public abstract AsyncExecutionResult TryExecute(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? result);
 
         // Requests operation to be cancelled.
