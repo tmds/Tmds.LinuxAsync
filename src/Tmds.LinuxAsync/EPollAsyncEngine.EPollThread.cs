@@ -21,9 +21,11 @@ namespace Tmds.LinuxAsync
 
             private readonly Dictionary<int, EPollAsyncContext> _asyncContexts;
             private readonly Thread _thread;
+            private LinuxAio? _asyncExecutionQueue;
             private int _epollFd = -1;
-            private int _pipeWriteFd = -1;
-            private int _pipeReadFd = -1;
+            private CloseSafeHandle? _pipeReadEnd;
+            private CloseSafeHandle? _pipeWriteEnd;
+            private byte[]? _dummyReadBuffer;
             private bool _disposed;
             private int _epollState;
 
@@ -37,11 +39,11 @@ namespace Tmds.LinuxAsync
             private List<ScheduledAction> _scheduledActions;
             private List<ScheduledAction> _executingActions;
 
-            public EPollThread()
+            public EPollThread(bool useLinuxAio)
             {
                 _asyncContexts = new Dictionary<int, EPollAsyncContext>();
 
-                CreateNativeResources();
+                CreateResources(useLinuxAio);
 
                 _scheduledActions = new List<ScheduledAction>(1024);
                 _executingActions = new List<ScheduledAction>(1024);
@@ -65,7 +67,6 @@ namespace Tmds.LinuxAsync
                     while (running)
                     {
                         int rv = epoll_wait(_epollFd, eventBuffer, EventBufferLength, epollTimeout);
-
                         Volatile.Write(ref _epollState, EPollNotBlocked);
 
                         if (rv == -1)
@@ -77,8 +78,6 @@ namespace Tmds.LinuxAsync
 
                             PlatformException.Throw();
                         }
-
-                        bool actionsRemaining = ExecuteScheduledActions();
 
                         lock (_asyncContexts)
                         {
@@ -93,15 +92,8 @@ namespace Tmds.LinuxAsync
                                 {
                                     if (key == PipeKey)
                                     {
-                                        byte b;
-                                        do
-                                        {
-                                            b = ReadFromPipe();
-                                            if (b == PipeDisposed)
-                                            {
-                                                running = false;
-                                            }
-                                        } while (b != PipeEAgain);
+                                        running = !_disposed;
+                                        ReadFromPipe(_asyncExecutionQueue);
                                     }
                                     asyncContextsForEvents.Add(null);
                                 }
@@ -113,16 +105,44 @@ namespace Tmds.LinuxAsync
                             EPollAsyncContext? context = asyncContextsForEvents[i];
                             if (context != null)
                             {
-                                context.HandleEvents(eventBuffer[i].events);
+                                context.ExecuteQueuedOperations(eventBuffer[i].events, triggeredByPoll: true, _asyncExecutionQueue);
                             }
                         }
                         asyncContextsForEvents.Clear();
 
+                        bool actionsRemaining = false;
+
+                        // Run this twice, operations can lead to new actions.
+                        for (int i = 0; i < 2; i++)
+                        {
+                            // First execute scheduled actions, they can add to the exection queue.
+                            ExecuteScheduledActions();
+                            if (_asyncExecutionQueue != null)
+                            {
+                                actionsRemaining = _asyncExecutionQueue.ExecuteOperations();
+                            }
+                        }
+
+                        if (!actionsRemaining)
+                        {
+                            // Check if there are scheduled actions remaining.
+                            lock (_actionQueueGate)
+                            {
+                                actionsRemaining = _scheduledActions.Count > 0;
+                                if (!actionsRemaining)
+                                {
+                                    Volatile.Write(ref _epollState, EPollBlocked);
+                                }
+                            }
+                        }
                         epollTimeout = actionsRemaining ? 0 : -1;
                     }
 
                     // Execute actions that got posted before we were disposed.
                     ExecuteScheduledActions();
+
+                    // Complete pending async operations.
+                    _asyncExecutionQueue?.Dispose();
 
                     lock (_asyncContexts)
                     {
@@ -135,7 +155,7 @@ namespace Tmds.LinuxAsync
                         }
                     }
 
-                    FreeNativeResources();
+                    FreeResources();
                 }
                 catch (Exception e)
                 {
@@ -170,6 +190,8 @@ namespace Tmds.LinuxAsync
 
             public unsafe void Post(Action<EPollThread, EPollAsyncContext?> action, EPollAsyncContext? context)
             {
+                // TODO: maybe special case when this is called from the EPollThread itself.
+
                 int epollState;
                 lock (_actionQueueGate)
                 {
@@ -184,51 +206,59 @@ namespace Tmds.LinuxAsync
                         AsyncContext = context,
                         Action = action
                     });
+                }
 
-                    // TODO: this can be moved outside the lock when _pipeWriteFd is a SafeHandle that gets Disposed.
-                    if (epollState == EPollBlocked)
-                    {
-                        WriteToPipe(PipeActionsPending);
-                    }
+                if (epollState == EPollBlocked)
+                {
+                    WriteToPipe();
                 }
             }
 
-            private unsafe void WriteToPipe(byte b)
+            private unsafe void WriteToPipe()
             {
-                int rv;
-                do
-                {
-                    rv = (int)write(_pipeWriteFd, &b, 1);
-                } while (rv == -1 && errno == EINTR);
+                Span<byte> buffer = stackalloc byte[1];
+                int rv = IoPal.Write(_pipeWriteEnd!, buffer);
                 if (rv == -1)
                 {
-                    PlatformException.Throw();
-                }
-            }
-
-            private unsafe byte ReadFromPipe()
-            {
-                byte b;
-                int rv;
-                do
-                {
-                    rv = (int)write(_pipeWriteFd, &b, 1);
-                } while (rv == -1 && errno == EINTR);
-                if (rv == -1)
-                {
-                    if (errno == EAGAIN)
-                    {
-                        return PipeEAgain;
-                    }
-                    else
+                    if (errno != EAGAIN)
                     {
                         PlatformException.Throw();
                     }
                 }
-                return b;
             }
 
-            private unsafe bool ExecuteScheduledActions()
+            private unsafe void ReadFromPipe(AsyncExecutionQueue? executionEngine)
+            {
+                if (executionEngine == null)
+                {
+                    Span<byte> buffer = stackalloc byte[128];
+                    int rv = IoPal.Read(_pipeReadEnd!, buffer);
+                    if (rv == -1)
+                    {
+                        if (errno != EAGAIN)
+                        {
+                            PlatformException.Throw();
+                        }
+                    }
+                }
+                else
+                {
+                    if (_dummyReadBuffer == null)
+                    {
+                        _dummyReadBuffer = new byte[128];
+                    }
+                    executionEngine.AddRead(_pipeReadEnd!, _dummyReadBuffer,
+                        (AsyncExecutionQueue queue, AsyncOperationResult result, object? state, int data) =>
+                        {
+                            if (result.Result < 0 && result.Result != -EAGAIN)
+                            {
+                                PlatformException.Throw();
+                            }
+                        }, state: null, data: 0);
+                }
+            }
+
+            private unsafe void ExecuteScheduledActions()
             {
                 List<ScheduledAction> actionQueue;
                 lock (_actionQueueGate)
@@ -246,20 +276,17 @@ namespace Tmds.LinuxAsync
                     }
                     actionQueue.Clear();
                 }
+            }
 
-                bool actionsRemaining = false;
-                lock (_actionQueueGate)
+            private bool HasScheduledActions
+            {
+                get
                 {
-                    if (_scheduledActions.Count > 0)
+                    lock (_actionQueueGate)
                     {
-                        actionsRemaining = true;
-                    }
-                    else
-                    {
-                        Volatile.Write(ref _epollState, EPollBlocked);
+                        return _scheduledActions.Count > 0;
                     }
                 }
-                return actionsRemaining;
             }
 
             public unsafe void Control(int op, int fd, int events, int key)
@@ -274,6 +301,10 @@ namespace Tmds.LinuxAsync
                 }
             }
 
+            internal void ExecuteQueuedOperations(int events, EPollAsyncContext context)
+            {
+                context.ExecuteQueuedOperations(events, triggeredByPoll: false, _asyncExecutionQueue);
+            }
             public void Dispose()
             {
                 lock (_asyncContexts)
@@ -285,54 +316,57 @@ namespace Tmds.LinuxAsync
                     _disposed = true;
                 }
 
-                WriteToPipe(PipeDisposed);
+                WriteToPipe();
 
                 _thread.Join();
             }
 
-            private unsafe void CreateNativeResources()
+            private unsafe void CreateResources(bool useLinuxAio)
             {
                 try
                 {
+                    if (useLinuxAio)
+                    {
+                        _asyncExecutionQueue = new LinuxAio();
+                    }
+
                     _epollFd = epoll_create1(EPOLL_CLOEXEC);
                     if (_epollFd == -1)
                     {
                         PlatformException.Throw();
                     }
 
+                    _pipeReadEnd = new CloseSafeHandle();
+                    _pipeWriteEnd = new CloseSafeHandle();
                     int* pipeFds = stackalloc int[2];
                     int rv = pipe2(pipeFds, O_CLOEXEC | O_NONBLOCK);
                     if (rv == -1)
                     {
                         PlatformException.Throw();
                     }
-                    _pipeReadFd = pipeFds[0];
-                    _pipeWriteFd = pipeFds[1];
+                    _pipeReadEnd.SetHandle(pipeFds[0]);
+                    _pipeWriteEnd.SetHandle(pipeFds[1]);
 
-                    Control(EPOLL_CTL_ADD, _pipeReadFd, EPOLLIN | EPOLLET, PipeKey);
+                    Control(EPOLL_CTL_ADD, pipeFds[0], EPOLLIN, PipeKey);
                 }
                 catch
                 {
-                    FreeNativeResources();
+                    FreeResources();
 
                     throw;
                 }
             }
 
-            private void FreeNativeResources()
+            private void FreeResources()
             {
+                _asyncExecutionQueue?.Dispose();
+
                 if (_epollFd != -1)
                 {
                     close(_epollFd);
                 }
-                if (_pipeWriteFd != -1)
-                {
-                    close(_pipeWriteFd);
-                }
-                if (_pipeReadFd != -1)
-                {
-                    close(_pipeReadFd);
-                }
+                _pipeReadEnd?.Dispose();
+                _pipeWriteEnd?.Dispose();
             }
         }
     }

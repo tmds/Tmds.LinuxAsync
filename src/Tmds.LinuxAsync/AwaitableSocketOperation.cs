@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks.Sources;
@@ -15,7 +16,6 @@ namespace Tmds.LinuxAsync
         private CancellationTokenRegistration _ctr;
         private ManualResetEventSlim? _mre;
 
-        private OperationCompletionFlags _completionFlags;
         private bool _readNotWrite;
 
         public short Version => _vts.Version;
@@ -41,7 +41,7 @@ namespace Tmds.LinuxAsync
         {
             // Capture values.
             SocketError socketError = Saea.SocketError;
-            OperationCompletionFlags completionFlags = _completionFlags;
+            OperationCompletionFlags completionFlags = CompletionFlags;
 
             // Reset this object and allow it to be reused.
             ResetAndReturnThis();
@@ -54,7 +54,7 @@ namespace Tmds.LinuxAsync
             // Capture values.
             int bytesTransferred = Saea.BytesTransferred;
             SocketError socketError = Saea.SocketError;
-            OperationCompletionFlags completionFlags = _completionFlags;
+            OperationCompletionFlags completionFlags = CompletionFlags;
 
             // Reset this object and allow it to be reused.
             ResetAndReturnThis();
@@ -69,7 +69,7 @@ namespace Tmds.LinuxAsync
             Socket? socket = Saea.AcceptSocket;
             Saea.AcceptSocket = null; // Don't hold a reference.
             SocketError socketError = Saea.SocketError;
-            OperationCompletionFlags completionFlags = _completionFlags;
+            OperationCompletionFlags completionFlags = CompletionFlags;
 
             // Reset this object and allow it to be reused.
             ResetAndReturnThis();
@@ -102,11 +102,13 @@ namespace Tmds.LinuxAsync
         public void OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags)
             => _vts.OnCompleted(continuation, state, token, flags);
 
-        public override void Complete(OperationCompletionFlags completionFlags)
+        public override void Complete()
         {
+            Debug.Assert((CompletionFlags & (OperationCompletionFlags.OperationCancelled | OperationCompletionFlags.OperationFinished)) != 0);
+
             ResetOperationState();
             _readNotWrite = IsReadNotWrite;
-            _completionFlags = completionFlags;
+            var completionFlags = CompletionFlags;
             Saea.Complete(completionFlags);
 
             if ((completionFlags & OperationCompletionFlags.CompletedCanceledSync) == OperationCompletionFlags.CompletedCanceledSync)
@@ -135,7 +137,7 @@ namespace Tmds.LinuxAsync
             _ctr.Dispose();
             _mre = null;
             CurrentAsyncContext = null;
-            _completionFlags = OperationCompletionFlags.None;
+            CompletionFlags = OperationCompletionFlags.None;
 
             // Return
             if (_readNotWrite)

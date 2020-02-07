@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Tmds.LinuxAsync;
 
 namespace web
 {
@@ -13,6 +14,10 @@ namespace web
     {
         public static void Main(string[] args)
         {
+            AsyncEngine.SocketEngine = new EPollAsyncEngine(
+                                            threadCount: Environment.ProcessorCount,
+                                            useLinuxAio: true);
+
             CreateHostBuilder(args).Build().Run();
         }
 
@@ -23,7 +28,9 @@ namespace web
                     webBuilder.UseStartup<Startup>();
                     webBuilder.UseLinuxAsyncSockets(options =>
                         {
-                            // options.RunContinuationsAsynchronously = false;
+                            options.DispatchContinuations = false;
+                            options.DeferSends = true;
+                            options.DeferReceives = true;
                         }
                     );
                 });

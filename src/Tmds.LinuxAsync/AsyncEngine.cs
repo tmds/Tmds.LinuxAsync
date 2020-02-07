@@ -19,7 +19,7 @@ namespace Tmds.LinuxAsync
                     Volatile.Read(ref _socketEngine) == null)
                 {
                     // Provide a default.
-                    var engine = new EPollAsyncEngine();
+                    var engine = new EPollAsyncEngine(threadCount: Environment.ProcessorCount, useLinuxAio: true);
                     if (Interlocked.CompareExchange(ref _socketEngine, engine, null) != null)
                     {
                         engine.Dispose();

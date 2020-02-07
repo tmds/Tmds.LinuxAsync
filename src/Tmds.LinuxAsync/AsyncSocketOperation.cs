@@ -58,24 +58,24 @@ namespace Tmds.LinuxAsync
             return false;
         }
 
-        public override bool TryExecute(bool isSync)
+        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? asyncResult)
         {
-            bool finished = false;
+            AsyncExecutionResult result = AsyncExecutionResult.WouldBlock;
 
             SocketAsyncOperation currentOperation = Saea.CurrentOperation;
             switch (Saea.CurrentOperation)
             {
                 case SocketAsyncOperation.Receive:
-                    finished = TryExecuteReceive(isSync);
+                    result = TryExecuteReceive(triggeredByPoll, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.Send:
-                    finished = TryExecuteSend();
+                    result = TryExecuteSend(executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.Accept:
-                    finished = TryExecuteAccept();
+                    result = TryExecuteAccept();
                     break;
                 case SocketAsyncOperation.Connect:
-                    finished = TryExecuteConnect();
+                    result = TryExecuteConnect();
                     break;
                 case SocketAsyncOperation.None:
                     ThrowHelper.ThrowInvalidOperationException();
@@ -85,29 +85,45 @@ namespace Tmds.LinuxAsync
                     break;
             }
 
-            return finished;
+            return result;
         }
 
-        private unsafe bool TryExecuteReceive(bool isSync)
+        private unsafe AsyncExecutionResult TryExecuteReceive(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? asyncResult)
         {
-            Socket? socket = Saea.CurrentSocket;
             Memory<byte> memory = Saea.MemoryBuffer;
 
-            if (socket == null)
-            {
-                ThrowHelper.ThrowInvalidOperationException();
-            }
+            bool isPollingReadable = memory.Length == 0; // A zero-byte read is a poll.
 
             SocketError socketError;
             int bytesTransferred;
-            if (!isSync && memory.Length == 0)
-            {
-                // Zero-byte read to check readable.
-                (socketError, bytesTransferred) = (SocketError.Success, 0);
-            }
+            if (TryGetBytesTransferredResult(asyncResult, out bytesTransferred, out socketError))
+            { }
             else
             {
-                (socketError, bytesTransferred) = SocketPal.Recv(socket.SafeHandle, memory);
+                if (triggeredByPoll && isPollingReadable)
+                {
+                    // No need to make a call, assume we're readable.
+                    (socketError, bytesTransferred) = (SocketError.Success, 0);
+                }
+                else
+                {
+                    Socket? socket = Saea.CurrentSocket;
+                    if (socket == null)
+                    {
+                        ThrowHelper.ThrowInvalidOperationException();
+                    }
+
+                    if (executionQueue != null &&
+                        !isPollingReadable) // Linux AIO returns Success instead of WouldBlock for zero-byte reads. (TODO)
+                    {
+                        executionQueue.AddRead(socket.SafeHandle, memory, callback!, state, data);
+                        return AsyncExecutionResult.Executing;
+                    }
+                    else
+                    {
+                        (socketError, bytesTransferred) = SocketPal.Recv(socket.SafeHandle, memory);
+                    }
+                }
             }
 
             bool finished = socketError != SocketError.WouldBlock;
@@ -118,11 +134,27 @@ namespace Tmds.LinuxAsync
                 Saea.SocketError = socketError;
             }
 
-            return finished;
+            return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WouldBlock;
         }
 
-        private unsafe bool TryExecuteSend()
+        private unsafe AsyncExecutionResult TryExecuteSend(AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? result)
         {
+            IList<ArraySegment<byte>>? bufferList = Saea.BufferList;
+
+            if (bufferList == null)
+            {
+                return SendSingleBuffer(Saea.MemoryBuffer, executionQueue, callback, state, data, result);
+            }
+            else
+            {
+                return SendMultipleBuffers(bufferList, executionQueue, callback, state, data, result);
+            }
+        }
+
+        private unsafe AsyncExecutionResult SendMultipleBuffers(IList<ArraySegment<byte>> buffers, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? result)
+        {
+            // TODO: use executionQueue
+
             Socket? socket = Saea.CurrentSocket;
 
             if (socket == null)
@@ -130,30 +162,6 @@ namespace Tmds.LinuxAsync
                 ThrowHelper.ThrowInvalidOperationException();
             }
 
-            IList<ArraySegment<byte>>? bufferList = Saea.BufferList;
-
-            bool finished;
-            SocketError socketError;
-            if (bufferList == null)
-            {
-                (finished, socketError) = SendSingleBuffer(socket, Saea.MemoryBuffer);
-            }
-            else
-            {
-                (finished, socketError) = SendMultipleBuffers(socket, bufferList);
-            }
-
-            if (finished)
-            {
-                Saea.BytesTransferred = _bytesTransferredTotal;
-                Saea.SocketError = socketError;
-            }
-
-            return finished;
-        }
-
-        private unsafe (bool finished, SocketError socketError) SendMultipleBuffers(Socket socket, IList<ArraySegment<byte>> buffers)
-        {
             int bufferIndex = _bufferIndex;
             int bufferOffset = _bufferOffset;
 
@@ -213,25 +221,51 @@ namespace Tmds.LinuxAsync
 
                 finished = _bufferIndex == buffers.Count;
             }
-
-            return (finished, socketError);
+            return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WouldBlock;
         }
 
-        private (bool finished, SocketError socketError) SendSingleBuffer(Socket socket, Memory<byte> memory)
+        private AsyncExecutionResult SendSingleBuffer(Memory<byte> memory, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? asyncResult)
         {
-            Memory<byte> remaining = memory.Slice(_bytesTransferredTotal);
-            (SocketError socketError, int bytesTransferred) = SocketPal.Send(socket.SafeHandle, remaining);
-
-            bool finished = socketError != SocketError.WouldBlock;
-            if (socketError == SocketError.Success && bytesTransferred > 0)
+            SocketError socketError;
+            int bytesTransferred;
+            bool finished = false;
+            if (TryGetBytesTransferredResult(asyncResult, out bytesTransferred, out socketError))
             {
-                _bytesTransferredTotal += bytesTransferred;
-                finished = _bytesTransferredTotal == memory.Length;
+                finished = socketError != SocketError.WouldBlock;
+                if (socketError == SocketError.Success && bytesTransferred > 0)
+                {
+                    _bytesTransferredTotal += bytesTransferred;
+                    finished = _bytesTransferredTotal == memory.Length;
+                }
             }
-            return (finished, socketError);
+            if (!finished)
+            {
+                Socket? socket = Saea.CurrentSocket;
+                if (socket == null)
+                {
+                    ThrowHelper.ThrowInvalidOperationException();
+                }
+
+                Memory<byte> remaining = memory.Slice(_bytesTransferredTotal);
+                if (executionQueue != null)
+                {
+                    executionQueue.AddWrite(socket.SafeHandle, remaining, callback!, state, data);
+                    return AsyncExecutionResult.Executing;
+                }
+                else
+                {
+                    (socketError, bytesTransferred) = SocketPal.Send(socket.SafeHandle, remaining);
+                    if (socketError == SocketError.Success && bytesTransferred > 0)
+                    {
+                        _bytesTransferredTotal += bytesTransferred;
+                        finished = _bytesTransferredTotal == memory.Length;
+                    }
+                }
+            }
+            return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WouldBlock;
         }
 
-        private bool TryExecuteConnect()
+        private AsyncExecutionResult TryExecuteConnect()
         {
             Socket? socket = Saea.CurrentSocket;
             IPEndPoint? ipEndPoint = Saea.RemoteEndPoint as IPEndPoint;
@@ -254,10 +288,10 @@ namespace Tmds.LinuxAsync
                 Saea.SocketError = socketError;
             }
 
-            return finished;
+            return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WouldBlock;
         }
 
-        private bool TryExecuteAccept()
+        private AsyncExecutionResult TryExecuteAccept()
         {
             Socket? socket = Saea.CurrentSocket;
 
@@ -276,7 +310,7 @@ namespace Tmds.LinuxAsync
                 Saea.AcceptSocket = acceptedSocket;
             }
 
-            return finished;
+            return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WouldBlock;
         }
 
         protected void ResetOperationState()
@@ -284,6 +318,31 @@ namespace Tmds.LinuxAsync
             _bytesTransferredTotal = 0;
             _bufferIndex = 0;
             _bufferOffset = 0;
+        }
+
+        private static bool TryGetBytesTransferredResult(AsyncOperationResult? asyncResult, out int bytesTransferred, out SocketError socketError)
+        {
+            if (asyncResult.HasValue)
+            {
+                int rv = asyncResult.Value.Result;
+                if (rv < 0)
+                {
+                    socketError = SocketPal.GetSocketErrorForErrno(-rv);
+                    bytesTransferred = 0;
+                }
+                else
+                {
+                    socketError = SocketError.Success;
+                    bytesTransferred = rv;
+                }
+                return true;
+            }
+            else
+            {
+                socketError = SocketError.SocketError;
+                bytesTransferred = -1;
+                return false;
+            }
         }
     }
 }

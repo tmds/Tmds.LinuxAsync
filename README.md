@@ -19,6 +19,7 @@ using SocketAsyncEventArgs = Tmds.LinuxAsync.SocketAsyncEventArgs;
 class SocketAsyncEventArgs
 {
   public bool RunContinuationsAsynchronously { get; set; } = true;
+  public bool PreferSynchronousCompletion { get; set; } = true;
 }
 ```
 
@@ -33,6 +34,8 @@ The Transport can be used in ASP.NET Core by calling the `UseLinuxAsyncSockets` 
 ```c#
 class SocketTransportOptions
 {
-  public bool RunContinuationsAsynchronously { get; set; } = true;
+  public bool DispatchContinuations { get; set; } = true; // Sets RunContinuationsAsynchronously
+  public bool DeferSends { get; set; } = false;           // Sets !PreferSynchronousCompletion for sends
+  public bool DeferReceives { get; set; } = false;        // Sets !PreferSynchronousCompletion for receives
 }
 ```

@@ -66,7 +66,7 @@ namespace Tmds.LinuxAsync
             return (socketError, bytesTransferred);
         }
 
-        private static SocketError GetSocketErrorForErrno(int errno)
+        public static SocketError GetSocketErrorForErrno(int errno)
         {
             if (errno == EACCES) { return SocketError.AccessDenied; }
             else if (errno == EADDRINUSE) { return SocketError.AddressAlreadyInUse; }

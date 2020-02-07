@@ -60,7 +60,7 @@ namespace Tmds.LinuxAsync
         private bool ExecuteAsync(SocketAsyncOperation operation, SocketAsyncEventArgs e)
         {
             e.StartOperationCommon(this, operation);
-            return AsyncContext.ExecuteAsync(e.AsyncOperation);
+            return AsyncContext.ExecuteAsync(e.AsyncOperation, e.PreferSynchronousCompletion);
         }
 
         public ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)

@@ -22,5 +22,11 @@ namespace Tmds.LinuxAsync
         {
             throw new IndexOutOfRangeException($"({typeof(T).FullName}){value}");
         }
+
+        [DoesNotReturn]
+        internal static void ThrowArgumentException(string name)
+        {
+            throw new ArgumentException(name);
+        }
     }
 }
