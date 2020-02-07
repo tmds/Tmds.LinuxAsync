@@ -112,7 +112,7 @@ namespace Tmds.LinuxAsync.Transport
                         acceptSocket.NoDelay = _options.NoDelay;
                     }
 
-                    var connection = new SocketConnection(acceptSocket, _memoryPool, _schedulers[_schedulerIndex], _trace, _options.MaxReadBufferSize, _options.MaxWriteBufferSize, _options.RunContinuationsAsynchronously);
+                    var connection = new SocketConnection(acceptSocket, _memoryPool, _schedulers[_schedulerIndex], _trace, _options.MaxReadBufferSize, _options.MaxWriteBufferSize, _options.DeferSends, _options.DeferReceives, _options.DispatchContinuations);
 
                     connection.Start();
 

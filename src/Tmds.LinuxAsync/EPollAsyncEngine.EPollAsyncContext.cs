@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -14,12 +15,12 @@ namespace Tmds.LinuxAsync
             {
                 public override bool IsReadNotWrite => throw new System.InvalidOperationException();
 
-                public override void Complete(OperationCompletionFlags completionStatus)
+                public override void Complete()
                 {
                     throw new System.InvalidOperationException();
                 }
 
-                public override bool TryExecute(bool isSync)
+                public override AsyncExecutionResult TryExecute(bool isSync, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? result)
                 {
                     throw new System.InvalidOperationException();
                 }
@@ -89,12 +90,13 @@ namespace Tmds.LinuxAsync
                 {
                     while (TryQueueTakeFirst(ref tail, out AsyncOperation? op))
                     {
-                        op.Complete(OperationCompletionFlags.CompletedCanceled);
+                        op.CompletionFlags = OperationCompletionFlags.CompletedCanceled;
+                        op.Complete();
                     }
                 }
             }
 
-            public void HandleEvents(int events)
+            public void ExecuteQueuedOperations(int events, bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncOperationResult? asyncResult = default)
             {
                 // Pick up the error by reading and writing.
                 if ((events & EPOLLERR) != 0)
@@ -112,21 +114,44 @@ namespace Tmds.LinuxAsync
                     {
                         _eventCounter++;
 
-                        if (_readTail is {} && _readTail != DisposedSentinel)
+                        if (_readTail is { } && _readTail != DisposedSentinel)
                         {
                             AsyncOperation? op = QueueGetFirst(_readTail);
                             while (op != null)
                             {
-                                if (op.TryExecute(isSync: false))
+                                // We're executing and waiting for an async result.
+                                if (op.IsExecuting && !asyncResult.HasValue)
+                                {
+                                    break;
+                                }
+
+                                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, executionQueue,
+                                    (AsyncExecutionQueue queue, AsyncOperationResult aResult, object? state, int data)
+                                        => ((EPollAsyncContext)state!).ExecuteQueuedOperations(POLLIN, triggeredByPoll: false, queue, aResult)
+                                , state: this, data: 0, asyncResult);
+
+                                op.IsExecuting = result == AsyncExecutionResult.Executing;
+
+                                // Operation finished, set CompletionFlags.
+                                if (result == AsyncExecutionResult.Finished)
+                                {
+                                    op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
+                                }
+                                // Operation got cancelled during execution.
+                                if (result == AsyncExecutionResult.WouldBlock && op.IsCancellationRequested)
+                                {
+                                    Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                    result = AsyncExecutionResult.Finished;
+                                }
+
+                                if (result == AsyncExecutionResult.Finished)
                                 {
                                     QueueRemove(ref _readTail, op);
                                     QueueAdd(ref completedTail, op);
                                     op = QueueGetFirst(_readTail);
+                                    continue;
                                 }
-                                else
-                                {
-                                    break;
-                                }
+                                break;
                             }
                         }
                     }
@@ -138,21 +163,44 @@ namespace Tmds.LinuxAsync
                     {
                         _eventCounter++;
 
-                        if (_writeTail is {} && _writeTail != DisposedSentinel)
+                        if (_writeTail is { } && _writeTail != DisposedSentinel)
                         {
                             AsyncOperation? op = QueueGetFirst(_writeTail);
                             while (op != null)
                             {
-                                if (op.TryExecute(isSync: false))
+                                // We're executing and waiting for an async result.
+                                if (op.IsExecuting && !asyncResult.HasValue)
+                                {
+                                    break;
+                                }
+
+                                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, executionQueue,
+                                    (AsyncExecutionQueue queue, AsyncOperationResult aResult, object? state, int data)
+                                        => ((EPollAsyncContext)state!).ExecuteQueuedOperations(POLLOUT, triggeredByPoll: false, queue, aResult)
+                                , state: this, data: 0, asyncResult);
+
+                                op.IsExecuting = result == AsyncExecutionResult.Executing;
+
+                                // Operation finished, set CompletionFlags.
+                                if (result == AsyncExecutionResult.Finished)
+                                {
+                                    op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
+                                }
+                                // Operation got cancelled during execution.
+                                if (result == AsyncExecutionResult.WouldBlock && op.IsCancellationRequested)
+                                {
+                                    Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                    result = AsyncExecutionResult.Finished;
+                                }
+
+                                if (result == AsyncExecutionResult.Finished)
                                 {
                                     QueueRemove(ref _writeTail, op);
                                     QueueAdd(ref completedTail, op);
                                     op = QueueGetFirst(_writeTail);
+                                    continue;
                                 }
-                                else
-                                {
-                                    break;
-                                }
+                                break;
                             }
                         }
                     }
@@ -161,17 +209,16 @@ namespace Tmds.LinuxAsync
                 // Complete operations.
                 while (TryQueueTakeFirst(ref completedTail, out AsyncOperation? completedOp))
                 {
-                    completedOp.Complete(OperationCompletionFlags.CompletedFinishedAsync);
+                    completedOp.Complete();
                 }
             }
 
-            public override bool ExecuteAsync(AsyncOperation operation)
+            public override bool ExecuteAsync(AsyncOperation operation, bool preferSync)
             {
                 EnsureNonBlocking();
 
                 try
                 {
-                    operation.Next = operation;
                     operation.CurrentAsyncContext = this;
 
                     bool executed = false;
@@ -181,14 +228,15 @@ namespace Tmds.LinuxAsync
                         int? eventCounterSnapshot = null;
 
                         // Try executing without a lock.
-                        if (Volatile.Read(ref _readTail) == null)
+                        if (preferSync && Volatile.Read(ref _readTail) == null)
                         {
                             eventCounterSnapshot = Volatile.Read(ref _eventCounter);
-                            executed = operation.TryExecute(isSync: true);
+                            executed = operation.TryExecuteSync();
                         }
 
                         if (!executed)
                         {
+                            bool postCheck = false;
                             lock (_readGate)
                             {
                                 if (_readTail == DisposedSentinel)
@@ -196,16 +244,23 @@ namespace Tmds.LinuxAsync
                                     ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
                                 }
 
+                                bool isQueueEmpty = _readTail == null;
+
                                 // Execute under lock.
-                                if (_readTail == null && _eventCounter != eventCounterSnapshot)
+                                if (isQueueEmpty && preferSync && _eventCounter != eventCounterSnapshot)
                                 {
-                                    executed = operation.TryExecute(isSync: true);
+                                    executed = operation.TryExecuteSync();
                                 }
 
                                 if (!executed)
                                 {
                                     QueueAdd(ref _readTail, operation);
+                                    postCheck = isQueueEmpty && !preferSync;
                                 }
+                            }
+                            if (postCheck)
+                            {
+                                _epoll.Post((EPollThread thread, EPollAsyncContext? context) => thread.ExecuteQueuedOperations(POLLIN, context!), this);
                             }
                         }
                     }
@@ -214,14 +269,15 @@ namespace Tmds.LinuxAsync
                         int? eventCounterSnapshot = null;
 
                         // Try executing without a lock.
-                        if (Volatile.Read(ref _writeTail) == null)
+                        if (preferSync && Volatile.Read(ref _writeTail) == null)
                         {
                             eventCounterSnapshot = Volatile.Read(ref _eventCounter);
-                            executed = operation.TryExecute(isSync: true);
+                            executed = operation.TryExecuteSync();
                         }
 
                         if (!executed)
                         {
+                            bool postCheck = false;
                             lock (_writeGate)
                             {
                                 if (_writeTail == DisposedSentinel)
@@ -229,23 +285,31 @@ namespace Tmds.LinuxAsync
                                     ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
                                 }
 
+                                bool isQueueEmpty = _writeTail == null;
+
                                 // Execute under lock.
-                                if (_writeTail == null && _eventCounter != eventCounterSnapshot)
+                                if (isQueueEmpty && preferSync && _eventCounter != eventCounterSnapshot)
                                 {
-                                    executed = operation.TryExecute(isSync: true);
+                                    executed = operation.TryExecuteSync();
                                 }
 
                                 if (!executed)
                                 {
                                     QueueAdd(ref _writeTail, operation);
+                                    postCheck = isQueueEmpty && !preferSync;
                                 }
+                            }
+                            if (postCheck)
+                            {
+                                _epoll.Post((EPollThread thread, EPollAsyncContext? context) => thread.ExecuteQueuedOperations(POLLOUT, context!), this);
                             }
                         }
                     }
 
                     if (executed)
                     {
-                        operation.Complete(OperationCompletionFlags.CompletedFinishedSync);
+                        operation.CompletionFlags = OperationCompletionFlags.CompletedFinishedSync;
+                        operation.Complete();
                     }
 
                     return !executed;
@@ -254,7 +318,12 @@ namespace Tmds.LinuxAsync
                 {
                     operation.Next = null;
 
-                    operation.Complete(OperationCompletionFlags.CompletedCanceledSync);
+                    bool cancelled = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceledSync);
+                    Debug.Assert(cancelled);
+                    if (cancelled)
+                    {
+                        operation.Complete();
+                    }
 
                     throw;
                 }
@@ -278,26 +347,34 @@ namespace Tmds.LinuxAsync
 
             internal override void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
             {
-                bool found = false;
+                bool cancelled = false;
 
                 if (operation.IsReadNotWrite)
                 {
                     lock (_readGate)
                     {
-                        found = QueueRemove(ref _readTail, operation);
+                        cancelled = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceled | flags);
+                        if (cancelled)
+                        {
+                            QueueRemove(ref _readTail, operation);
+                        }
                     }
                 }
                 else
                 {
                     lock (_writeGate)
                     {
-                        found = QueueRemove(ref _writeTail, operation);
+                        cancelled = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceled | flags);
+                        if (cancelled)
+                        {
+                            QueueRemove(ref _writeTail, operation);
+                        }
                     }
                 }
 
-                if (found)
+                if (cancelled)
                 {
-                    operation.Complete(OperationCompletionFlags.CompletedCanceled | flags);
+                    operation.Complete();
                 }
             }
 

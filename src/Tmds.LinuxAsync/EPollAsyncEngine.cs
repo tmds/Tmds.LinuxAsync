@@ -7,13 +7,11 @@ namespace Tmds.LinuxAsync
     public sealed partial class EPollAsyncEngine : AsyncEngine
     {
         private readonly EPollThread[] _threads;
-        private readonly int _threadCount;
         private int _previousThreadIdx = -1;
 
-        public EPollAsyncEngine()
+        public EPollAsyncEngine(int threadCount)
         {
-            _threadCount = Environment.ProcessorCount;
-            _threads = new EPollThread[_threadCount];
+            _threads = new EPollThread[threadCount];
             for (int i = 0; i < _threads.Length; i++)
             {
                 _threads[i] = new EPollThread();
@@ -30,7 +28,7 @@ namespace Tmds.LinuxAsync
 
         internal override AsyncContext CreateContext(SafeHandle handle)
         {
-            int threadIdx = (int)((uint)Interlocked.Increment(ref _previousThreadIdx) % (uint)_threadCount);
+            int threadIdx = (int)((uint)Interlocked.Increment(ref _previousThreadIdx) % (uint)_threads.Length);
             return _threads[threadIdx].CreateContext(handle);
         }
     }

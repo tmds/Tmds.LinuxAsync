@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Threading;
 
 namespace Tmds.LinuxAsync
@@ -5,21 +6,19 @@ namespace Tmds.LinuxAsync
     // AsyncOperation for executing SocketAsyncEventArgs operation.
     sealed class AsyncSocketEventArgsOperation : AsyncSocketOperation, IThreadPoolWorkItem
     {
-        OperationCompletionFlags _competionStatus;
-
         public AsyncSocketEventArgsOperation(SocketAsyncEventArgs saea) :
             base(saea)
         { }
 
-        public override void Complete(OperationCompletionFlags competionStatus)
+        public override void Complete()
         {
+            Debug.Assert((CompletionFlags & (OperationCompletionFlags.OperationCancelled | OperationCompletionFlags.OperationFinished)) != 0);
+
             bool runContinuationsAsync = Saea.RunContinuationsAsynchronously;
 
             ResetOperationState();
 
-            _competionStatus = competionStatus;
-
-            bool completeSync = (competionStatus & OperationCompletionFlags.CompletedSync) != 0;
+            bool completeSync = (CompletionFlags & OperationCompletionFlags.CompletedSync) != 0;
             if (completeSync || !runContinuationsAsync)
             {
                 ((IThreadPoolWorkItem)this).Execute();
@@ -33,10 +32,10 @@ namespace Tmds.LinuxAsync
         void IThreadPoolWorkItem.Execute()
         {
             // Capture state.
-            OperationCompletionFlags completionStatus = _competionStatus;
+            OperationCompletionFlags completionStatus = CompletionFlags;
 
             // Reset state.
-            _competionStatus = OperationCompletionFlags.None;
+            CompletionFlags = OperationCompletionFlags.None;
             CurrentAsyncContext = null;
 
             // Complete.

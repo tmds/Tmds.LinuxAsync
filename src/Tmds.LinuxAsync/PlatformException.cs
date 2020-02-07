@@ -29,5 +29,7 @@ namespace Tmds.LinuxAsync
         }
 
         public static void Throw() => throw new PlatformException();
+
+        public static void Throw(int errno) => throw new PlatformException(errno);
     }
 }

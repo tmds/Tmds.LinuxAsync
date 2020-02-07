@@ -40,7 +40,9 @@ namespace Tmds.LinuxAsync.Transport.Internal
                                   ISocketsTrace trace,
                                   long? maxReadBufferSize = null,
                                   long? maxWriteBufferSize = null,
-                                  bool runContinuationsAsynchronously = true)
+                                  bool deferSends = true,
+                                  bool deferReceives = true,
+                                  bool dispatchContinuations = true)
         {
             Debug.Assert(socket != null);
             Debug.Assert(memoryPool != null);
@@ -60,12 +62,13 @@ namespace Tmds.LinuxAsync.Transport.Internal
             // https://github.com/aspnet/KestrelHttpServer/issues/2573
             var awaiterScheduler = IsWindows ? scheduler : PipeScheduler.Inline;
 
-            _receiver = new SocketReceiver(_socket, awaiterScheduler, runContinuationsAsynchronously);
-            _sender = new SocketSender(_socket, awaiterScheduler, runContinuationsAsynchronously);
+            _receiver = new SocketReceiver(_socket, awaiterScheduler, runContinuationsAsynchronously: dispatchContinuations, preferSynchronousCompletion: !deferReceives);
+            _sender = new SocketSender(_socket, awaiterScheduler, runContinuationsAsynchronously: dispatchContinuations, preferSynchronousCompletion: !deferSends);
 
             maxReadBufferSize ??= 0;
             maxWriteBufferSize ??= 0;
 
+            // TODO: inline some of these?
             var inputOptions = new PipeOptions(MemoryPool, PipeScheduler.ThreadPool, scheduler, maxReadBufferSize.Value, maxReadBufferSize.Value / 2, useSynchronizationContext: false);
             var outputOptions = new PipeOptions(MemoryPool, scheduler, PipeScheduler.ThreadPool, maxWriteBufferSize.Value, maxWriteBufferSize.Value / 2, useSynchronizationContext: false);
 

@@ -38,6 +38,8 @@ namespace Tmds.LinuxAsync.Transport
 
         internal Func<MemoryPool<byte>> MemoryPoolFactory { get; set; } = System.Buffers.SlabMemoryPoolFactory.Create;
 
-        public bool RunContinuationsAsynchronously { get; set; } = true;
+        public bool DispatchContinuations { get; set; } = true;
+        public bool DeferSends { get; set; } = false;
+        public bool DeferReceives { get; set; } = false;
     }
 }

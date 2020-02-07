@@ -12,11 +12,12 @@ namespace Tmds.LinuxAsync.Transport.Internal
         protected readonly Socket _socket;
         protected readonly SocketAwaitableEventArgs _awaitableEventArgs;
 
-        protected SocketSenderReceiverBase(Socket socket, PipeScheduler scheduler, bool runContinuationsAsynchronously)
+        protected SocketSenderReceiverBase(Socket socket, PipeScheduler scheduler, bool runContinuationsAsynchronously, bool preferSynchronousCompletion)
         {
             _socket = socket;
             _awaitableEventArgs = new SocketAwaitableEventArgs(scheduler);
             _awaitableEventArgs.RunContinuationsAsynchronously = runContinuationsAsynchronously;
+            _awaitableEventArgs.PreferSynchronousCompletion = preferSynchronousCompletion;
         }
 
         public void Dispose() => _awaitableEventArgs.Dispose();
