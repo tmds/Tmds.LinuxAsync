@@ -39,11 +39,11 @@ namespace Tmds.LinuxAsync
             private List<ScheduledAction> _scheduledActions;
             private List<ScheduledAction> _executingActions;
 
-            public EPollThread()
+            public EPollThread(bool useLinuxAio)
             {
                 _asyncContexts = new Dictionary<int, EPollAsyncContext>();
 
-                CreateResources();
+                CreateResources(useLinuxAio);
 
                 _scheduledActions = new List<ScheduledAction>(1024);
                 _executingActions = new List<ScheduledAction>(1024);
@@ -321,11 +321,14 @@ namespace Tmds.LinuxAsync
                 _thread.Join();
             }
 
-            private unsafe void CreateResources()
+            private unsafe void CreateResources(bool useLinuxAio)
             {
                 try
                 {
-                    _asyncExecutionQueue = new LinuxAio();
+                    if (useLinuxAio)
+                    {
+                        _asyncExecutionQueue = new LinuxAio();
+                    }
 
                     _epollFd = epoll_create1(EPOLL_CLOEXEC);
                     if (_epollFd == -1)

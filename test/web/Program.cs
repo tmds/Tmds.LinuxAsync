@@ -14,7 +14,9 @@ namespace web
     {
         public static void Main(string[] args)
         {
-            AsyncEngine.SocketEngine = new EPollAsyncEngine(threadCount: Environment.ProcessorCount);
+            AsyncEngine.SocketEngine = new EPollAsyncEngine(
+                                            threadCount: Environment.ProcessorCount,
+                                            useLinuxAio: true);
 
             CreateHostBuilder(args).Build().Run();
         }

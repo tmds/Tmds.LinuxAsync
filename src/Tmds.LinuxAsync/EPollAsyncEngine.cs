@@ -9,12 +9,12 @@ namespace Tmds.LinuxAsync
         private readonly EPollThread[] _threads;
         private int _previousThreadIdx = -1;
 
-        public EPollAsyncEngine(int threadCount)
+        public EPollAsyncEngine(int threadCount, bool useLinuxAio)
         {
             _threads = new EPollThread[threadCount];
             for (int i = 0; i < _threads.Length; i++)
             {
-                _threads[i] = new EPollThread();
+                _threads[i] = new EPollThread(useLinuxAio);
             }
         }
 
