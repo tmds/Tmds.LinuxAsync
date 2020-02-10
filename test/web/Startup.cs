@@ -22,6 +22,7 @@ namespace web
                 app.UseDeveloperExceptionPage();
             }
 
+#if DEBUG
             app.UseRouting();
 
             app.UseEndpoints(endpoints =>
@@ -31,6 +32,10 @@ namespace web
                     await context.Response.WriteAsync("Hello World!");
                 });
             });
+#else
+            app.UsePlainText();
+            app.UseJson();
+#endif
         }
     }
 }
