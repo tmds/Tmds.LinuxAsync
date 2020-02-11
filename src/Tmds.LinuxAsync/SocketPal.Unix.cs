@@ -300,7 +300,13 @@ namespace Tmds.LinuxAsync
             MethodInfo safeCloseSocketCreate = safeCloseSocketType.GetTypeInfo().GetMethod("CreateSocket", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null, new[] { typeof(IntPtr) }, null);
             if (safeCloseSocketCreate == null)
             {
-                ThrowNotSupported(nameof(safeCloseSocketCreate));
+                // .NET 5
+                Type socketPalType = socketAssembly.GetType("System.Net.Sockets.SocketPal");
+                safeCloseSocketCreate = socketPalType.GetTypeInfo().GetMethod("CreateSocket", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null, new[] { typeof(IntPtr) }, null);
+                if (safeCloseSocketCreate == null)
+                {
+                    ThrowNotSupported(nameof(safeCloseSocketCreate));
+                }
             }
             ConstructorInfo socketConstructor = typeof(System.Net.Sockets.Socket).GetTypeInfo().GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { safeCloseSocketType }, null);
             if (socketConstructor == null)
