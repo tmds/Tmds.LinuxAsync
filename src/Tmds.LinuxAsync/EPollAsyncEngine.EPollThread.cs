@@ -15,9 +15,6 @@ namespace Tmds.LinuxAsync
             private const int PipeKey = -1;
             private const int EPollBlocked = 1;
             private const int EPollNotBlocked = 0;
-            private const byte PipeActionsPending = 1;
-            private const byte PipeEAgain = 2;
-            private const byte PipeDisposed = 2;
 
             private readonly Dictionary<int, EPollAsyncContext> _asyncContexts;
             private readonly Thread _thread;
@@ -105,7 +102,7 @@ namespace Tmds.LinuxAsync
                             EPollAsyncContext? context = asyncContextsForEvents[i];
                             if (context != null)
                             {
-                                context.ExecuteQueuedOperations(eventBuffer[i].events, triggeredByPoll: true, _asyncExecutionQueue);
+                                context.ExecuteQueuedOperations(eventBuffer[i].events, triggeredByPoll: true, _asyncExecutionQueue, AsyncOperationResult.NoResult);
                             }
                         }
                         asyncContextsForEvents.Clear();
@@ -250,7 +247,7 @@ namespace Tmds.LinuxAsync
                     executionEngine.AddRead(_pipeReadEnd!, _dummyReadBuffer,
                         (AsyncExecutionQueue queue, AsyncOperationResult result, object? state, int data) =>
                         {
-                            if (result.Result < 0 && result.Result != -EAGAIN)
+                            if (result.IsError && result.Errno != EAGAIN)
                             {
                                 PlatformException.Throw();
                             }
@@ -303,7 +300,7 @@ namespace Tmds.LinuxAsync
 
             internal void ExecuteQueuedOperations(int events, EPollAsyncContext context)
             {
-                context.ExecuteQueuedOperations(events, triggeredByPoll: false, _asyncExecutionQueue);
+                context.ExecuteQueuedOperations(events, triggeredByPoll: false, _asyncExecutionQueue, AsyncOperationResult.NoResult);
             }
             public void Dispose()
             {

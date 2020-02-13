@@ -6,7 +6,7 @@ namespace Tmds.LinuxAsync
     enum AsyncExecutionResult
     {
         Finished,
-        WouldBlock,
+        WaitForPoll,
         Executing
     }
 
@@ -68,11 +68,16 @@ namespace Tmds.LinuxAsync
             => TryExecute(triggeredByPoll: false, executionQueue: null, callback: null, state: null, data: 0, default) == AsyncExecutionResult.Finished;
 
         // Continues execution of this operation.
-        // In case this method is called due to poll indicating the handle is ready, triggeredByPoll is true.
-        // The executionQueue (when not null) can be used to batch the operation.
-        //   callback, state, and data must be passed to the executionQueue.
-        // When the batched operation is done, the method is called again and result has a value.
-        public abstract AsyncExecutionResult TryExecute(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? result);
+        // When the operation is finished, AsyncExecutionResult.Finished is returned.
+        // The executionQueue, when not null, can be used to batch operations.
+        //   The callback, state, and data arguments must be passed on to the executionQueue.
+        // When the executionQueue is used, AsyncExecutionResult.Executing is returned.
+        // When the batched operations completes, the method is called again and result has a value.
+        // The execution queue may or may not support poll operations (ExecutionQueue.SupportsPolling).
+        // In case there is no execution queue, or the queue does not support polling, the method
+        // can return WaitForPoll. The method will be called again when poll indicates the handle is ready,
+        // (and triggeredByPoll is true).
+        public abstract AsyncExecutionResult TryExecute(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result);
 
         // Requests operation to be cancelled.
         public void TryCancelAndComplete(OperationCompletionFlags completionFlags = OperationCompletionFlags.None)
