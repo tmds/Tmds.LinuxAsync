@@ -20,7 +20,7 @@ namespace Tmds.LinuxAsync
                     throw new System.InvalidOperationException();
                 }
 
-                public override AsyncExecutionResult TryExecute(bool isSync, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult? result)
+                public override AsyncExecutionResult TryExecute(bool isSync, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
                 {
                     throw new System.InvalidOperationException();
                 }
@@ -96,7 +96,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public void ExecuteQueuedOperations(int events, bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncOperationResult? asyncResult = default)
+            public void ExecuteQueuedOperations(int events, bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncOperationResult asyncResult)
             {
                 // Pick up the error by reading and writing.
                 if ((events & EPOLLERR) != 0)
@@ -120,29 +120,36 @@ namespace Tmds.LinuxAsync
                             while (op != null)
                             {
                                 // We're executing and waiting for an async result.
-                                if (op.IsExecuting && !asyncResult.HasValue)
+                                if (op.IsExecuting && !asyncResult.HasResult)
                                 {
                                     break;
                                 }
 
-                                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, executionQueue,
-                                    (AsyncExecutionQueue queue, AsyncOperationResult aResult, object? state, int data)
-                                        => ((EPollAsyncContext)state!).ExecuteQueuedOperations(POLLIN, triggeredByPoll: false, queue, aResult)
-                                , state: this, data: 0, asyncResult);
-
-                                op.IsExecuting = result == AsyncExecutionResult.Executing;
-
-                                // Operation finished, set CompletionFlags.
-                                if (result == AsyncExecutionResult.Finished)
+                                AsyncExecutionResult result;
+                                if (asyncResult.HasResult && asyncResult.IsCancelledError)
                                 {
-                                    op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
-                                }
-                                // Operation got cancelled during execution.
-                                if (result == AsyncExecutionResult.WouldBlock && op.IsCancellationRequested)
-                                {
-                                    Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                    // Operation got cancelled during execution.
                                     result = AsyncExecutionResult.Finished;
                                 }
+                                else
+                                {
+                                    result = op.TryExecute(triggeredByPoll, executionQueue,
+                                        (AsyncExecutionQueue queue, AsyncOperationResult aResult, object? state, int data)
+                                            => ((EPollAsyncContext)state!).ExecuteQueuedOperations(POLLIN, triggeredByPoll: false, queue, aResult)
+                                    , state: this, data: 0, asyncResult);
+                                    // Operation finished, set CompletionFlags.
+                                    if (result == AsyncExecutionResult.Finished)
+                                    {
+                                        op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
+                                    }
+                                    // Operation cancellation requested during execution.
+                                    else if (result == AsyncExecutionResult.WaitForPoll && op.IsCancellationRequested)
+                                    {
+                                        Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                        result = AsyncExecutionResult.Finished;
+                                    }
+                                }
+                                op.IsExecuting = result == AsyncExecutionResult.Executing;
 
                                 if (result == AsyncExecutionResult.Finished)
                                 {
@@ -169,29 +176,36 @@ namespace Tmds.LinuxAsync
                             while (op != null)
                             {
                                 // We're executing and waiting for an async result.
-                                if (op.IsExecuting && !asyncResult.HasValue)
+                                if (op.IsExecuting && !asyncResult.HasResult)
                                 {
                                     break;
                                 }
 
-                                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, executionQueue,
-                                    (AsyncExecutionQueue queue, AsyncOperationResult aResult, object? state, int data)
-                                        => ((EPollAsyncContext)state!).ExecuteQueuedOperations(POLLOUT, triggeredByPoll: false, queue, aResult)
-                                , state: this, data: 0, asyncResult);
-
-                                op.IsExecuting = result == AsyncExecutionResult.Executing;
-
-                                // Operation finished, set CompletionFlags.
-                                if (result == AsyncExecutionResult.Finished)
+                                AsyncExecutionResult result;
+                                if (asyncResult.HasResult && asyncResult.IsCancelledError)
                                 {
-                                    op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
-                                }
-                                // Operation got cancelled during execution.
-                                if (result == AsyncExecutionResult.WouldBlock && op.IsCancellationRequested)
-                                {
-                                    Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                    // Operation got cancelled during execution.
                                     result = AsyncExecutionResult.Finished;
                                 }
+                                else
+                                {
+                                    result = op.TryExecute(triggeredByPoll, executionQueue,
+                                        (AsyncExecutionQueue queue, AsyncOperationResult aResult, object? state, int data)
+                                            => ((EPollAsyncContext)state!).ExecuteQueuedOperations(POLLOUT, triggeredByPoll: false, queue, aResult)
+                                    , state: this, data: 0, asyncResult);
+                                    // Operation finished, set CompletionFlags.
+                                    if (result == AsyncExecutionResult.Finished)
+                                    {
+                                        op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
+                                    }
+                                    // Operation cancellation requested during execution.
+                                    else if (result == AsyncExecutionResult.WaitForPoll && op.IsCancellationRequested)
+                                    {
+                                        Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                        result = AsyncExecutionResult.Finished;
+                                    }
+                                }
+                                op.IsExecuting = result == AsyncExecutionResult.Executing;
 
                                 if (result == AsyncExecutionResult.Finished)
                                 {

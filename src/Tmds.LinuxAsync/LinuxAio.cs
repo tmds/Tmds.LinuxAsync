@@ -45,7 +45,8 @@ namespace Tmds.LinuxAsync
         private unsafe iocb** AioCbsTable => (iocb**)Align(_aioCbsTableMemory);
         // private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory); // TODO
 
-        public unsafe LinuxAio()
+        public unsafe LinuxAio() :
+            base(supportsPolling: false)
         {
             try
             {
@@ -163,7 +164,7 @@ namespace Tmds.LinuxAsync
                             io_event* events = AioEvents;
                             for (int i = 0; i < rv; i++)
                             {
-                                results[(int)events->data] = new AsyncOperationResult { Result = (int)events->res };
+                                results[(int)events->data] = new AsyncOperationResult(events->res);
                                 events++;
                             }
                             toReceive -= rv;
@@ -305,6 +306,16 @@ namespace Tmds.LinuxAsync
             {
                 io_destroy(_ctx);
             }
+        }
+
+        public override void AddPollIn(SafeHandle handle, AsyncExecutionCallback asyncExecutionCallback, object? state, int data)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void AddPollOut(SafeHandle handle, AsyncExecutionCallback asyncExecutionCallback, object? state, int data)
+        {
+            throw new NotSupportedException();
         }
     }
 }
