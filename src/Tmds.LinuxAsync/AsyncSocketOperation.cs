@@ -92,6 +92,12 @@ namespace Tmds.LinuxAsync
 
         private unsafe AsyncExecutionResult TryExecuteReceive(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
+            IList<ArraySegment<byte>>? bufferList = Saea.BufferList;
+            if (bufferList != null)
+            {
+                throw new NotSupportedException();
+            }
+
             SocketError socketError = SocketError.SocketError;
             int bytesTransferred = -1;
             AsyncExecutionResult result = AsyncExecutionResult.Executing;

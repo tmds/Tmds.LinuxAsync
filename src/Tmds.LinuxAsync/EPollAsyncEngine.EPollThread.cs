@@ -13,8 +13,8 @@ namespace Tmds.LinuxAsync
         {
             private const int EventBufferLength = 512;
             private const int PipeKey = -1;
-            private const int EPollBlocked = 1;
-            private const int EPollNotBlocked = 0;
+            private const int StateBlocked = 1;
+            private const int StateNotBlocked = 0;
 
             private readonly Dictionary<int, EPollAsyncContext> _asyncContexts;
             private readonly Thread _thread;
@@ -24,7 +24,7 @@ namespace Tmds.LinuxAsync
             private CloseSafeHandle? _pipeWriteEnd;
             private byte[]? _dummyReadBuffer;
             private bool _disposed;
-            private int _epollState;
+            private int _blockedState;
 
             struct ScheduledAction
             {
@@ -44,12 +44,11 @@ namespace Tmds.LinuxAsync
 
                 _scheduledActions = new List<ScheduledAction>(1024);
                 _executingActions = new List<ScheduledAction>(1024);
-                _epollState = EPollBlocked;
+                _blockedState = StateBlocked;
 
                 _thread = new Thread(EventLoop);
                 _thread.IsBackground = true;
                 _thread.Start();
-
             }
 
             private unsafe void EventLoop()
@@ -64,7 +63,7 @@ namespace Tmds.LinuxAsync
                     while (running)
                     {
                         int rv = epoll_wait(_epollFd, eventBuffer, EventBufferLength, epollTimeout);
-                        Volatile.Write(ref _epollState, EPollNotBlocked);
+                        Volatile.Write(ref _blockedState, StateNotBlocked);
 
                         if (rv == -1)
                         {
@@ -128,7 +127,7 @@ namespace Tmds.LinuxAsync
                                 actionsRemaining = _scheduledActions.Count > 0;
                                 if (!actionsRemaining)
                                 {
-                                    Volatile.Write(ref _epollState, EPollBlocked);
+                                    Volatile.Write(ref _blockedState, StateBlocked);
                                 }
                             }
                         }
@@ -141,15 +140,16 @@ namespace Tmds.LinuxAsync
                     // Complete pending async operations.
                     _asyncExecutionQueue?.Dispose();
 
+                    EPollAsyncContext[] contexts;
                     lock (_asyncContexts)
                     {
-                        var contexts = _asyncContexts;
+                        contexts = new EPollAsyncContext[_asyncContexts.Count];
+                        _asyncContexts.Values.CopyTo(contexts, 0);
                         _asyncContexts.Clear();
-
-                        foreach (var context in contexts.Values)
-                        {
-                            context.Dispose();
-                        }
+                    }
+                    foreach (var context in contexts)
+                    {
+                        context.Dispose();
                     }
 
                     FreeResources();
@@ -169,7 +169,7 @@ namespace Tmds.LinuxAsync
                         ThrowHelper.ThrowObjectDisposedException<EPollThread>();
                     }
 
-                    EPollAsyncContext context = new EPollAsyncContext(this, handle);
+                    EPollAsyncContext context = new EPollAsyncContext(this, handle); // TODO: move this outside lock.
 
                     _asyncContexts.Add(context.Key, context);
 
@@ -189,7 +189,7 @@ namespace Tmds.LinuxAsync
             {
                 // TODO: maybe special case when this is called from the EPollThread itself.
 
-                int epollState;
+                int blockingState;
                 lock (_actionQueueGate)
                 {
                     if (_disposed)
@@ -197,7 +197,7 @@ namespace Tmds.LinuxAsync
                         ThrowHelper.ThrowObjectDisposedException<EPollThread>();
                     }
 
-                    epollState = Interlocked.CompareExchange(ref _epollState, EPollNotBlocked, EPollBlocked);
+                    blockingState = Interlocked.CompareExchange(ref _blockedState, StateNotBlocked, StateBlocked);
                     _scheduledActions.Add(new ScheduledAction
                     {
                         AsyncContext = context,
@@ -205,7 +205,7 @@ namespace Tmds.LinuxAsync
                     });
                 }
 
-                if (epollState == EPollBlocked)
+                if (blockingState == StateBlocked)
                 {
                     WriteToPipe();
                 }
