@@ -65,7 +65,7 @@ namespace Tmds.LinuxAsync
 
         // Try to execute the operation. Returns true when done, false it should be tried again.
         public bool TryExecuteSync()
-            => TryExecute(triggeredByPoll: false, executionQueue: null, callback: null, state: null, data: 0, default) == AsyncExecutionResult.Finished;
+            => TryExecute(triggeredByPoll: false, executionQueue: null, callback: null, state: null, data: 0, AsyncOperationResult.NoResult) == AsyncExecutionResult.Finished;
 
         // Continues execution of this operation.
         // When the operation is finished, AsyncExecutionResult.Finished is returned.

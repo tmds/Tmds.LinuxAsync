@@ -5,8 +5,21 @@ To compare implementations they need to be benchmarks, so the repo will expose a
 The async engine implementation should also allow implementing async operations for pipe-type `FileStream`.
 
 For accessing native system functions [Tmds.LibC](https://github.com/tmds/Tmds.LibC) is used. This avoid having to include a native shim library.
+[tkp1n/IoUring](https://github.com/tkp1n/IoUring) is used for `io_uring` APIs.
 
 # Tmds.LinuxAsync
+
+Two async engines implementations are provided. They can be configured an used by setting `AsyncEngine.SocketEngine`:
+```c#
+// epoll-based with linux AIO for batching
+AsyncEngine.SocketEngine = new EPollAsyncEngine(
+                                threadCount: Environment.ProcessorCount,
+                                useLinuxAio: true);
+
+// io_uring-based
+AsyncEngine.SocketEngine = new IOUringAsyncEngine(
+                                threadCount: Environment.ProcessorCount);
+```
 
 To use the `Socket` from this package, add these to the top of your code file:
 
@@ -14,6 +27,8 @@ To use the `Socket` from this package, add these to the top of your code file:
 using Socket = Tmds.LinuxAsync.Socket;
 using SocketAsyncEventArgs = Tmds.LinuxAsync.SocketAsyncEventArgs;
 ```
+
+Additional properties are provided on `SocketAsyncEventArgs`:
 
 ```c#
 class SocketAsyncEventArgs
@@ -23,7 +38,7 @@ class SocketAsyncEventArgs
 }
 ```
 
-Setting `RunContinuationsAsynchronously` to `false` allows `SocketAsyncEngine` to invoke callbacks directly from the epoll thread. This avoid context switching cost.
+Setting `RunContinuationsAsynchronously` to `false` allows `SocketAsyncEngine` to invoke callbacks directly from the `epoll`/`io_uring` thread. This avoid context switching to the `ThreadPool`.
 
 # Tmds.LinuxAsync.Transport
 
