@@ -9,22 +9,6 @@ namespace Tmds.LinuxAsync
     {
         sealed class Queue
         {
-            sealed class AsyncOperationSentinel : AsyncOperation
-            {
-                public override bool IsReadNotWrite => throw new System.InvalidOperationException();
-
-                public override void Complete()
-                {
-                    throw new System.InvalidOperationException();
-                }
-
-                public override AsyncExecutionResult TryExecute(bool isSync, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
-                {
-                    throw new System.InvalidOperationException();
-                }
-            }
-
-            private static readonly AsyncOperationSentinel DisposedSentinel = new AsyncOperationSentinel();
             private readonly IOUringThread _thread;
 
             public Queue(IOUringThread thread)
@@ -43,12 +27,12 @@ namespace Tmds.LinuxAsync
                     tail = _tail;
 
                     // Already disposed?
-                    if (tail == DisposedSentinel)
+                    if (tail == AsyncOperation.DisposedSentinel)
                     {
                         return false;
                     }
 
-                    _tail = DisposedSentinel;
+                    _tail = AsyncOperation.DisposedSentinel;
                 }
 
                 CompleteOperationsCancelled(ref tail);
@@ -71,7 +55,7 @@ namespace Tmds.LinuxAsync
 
                 lock (Gate)
                 {
-                    if (_tail is { } && _tail != DisposedSentinel)
+                    if (_tail is { } && _tail != AsyncOperation.DisposedSentinel)
                     {
                         AsyncOperation? op = QueueGetFirst(_tail);
                         while (op != null)
@@ -143,7 +127,7 @@ namespace Tmds.LinuxAsync
                     bool postCheck = false;
                     lock (Gate)
                     {
-                        if (_tail == DisposedSentinel)
+                        if (_tail == AsyncOperation.DisposedSentinel)
                         {
                             ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
                         }
