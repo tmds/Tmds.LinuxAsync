@@ -85,29 +85,20 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            AsyncExecutionResult result;
-                            if (asyncResult.HasResult && asyncResult.IsCancelledError)
-                            {
-                                // Operation got cancelled during execution.
-                                result = AsyncExecutionResult.Finished;
-                            }
-                            else
-                            {
-                                result = op.TryExecute(triggeredByPoll, _thread.ExecutionQueue,
+                            AsyncExecutionResult result = op.TryExecute(triggeredByPoll, _thread.ExecutionQueue,
                                     (AsyncOperationResult aResult, object? state, int data)
                                         => ((Queue)state!).ExecuteQueued(triggeredByPoll: false, aResult)
-                                , state: this, data: 0, asyncResult);
-                                // Operation finished, set CompletionFlags.
-                                if (result == AsyncExecutionResult.Finished)
-                                {
-                                    op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
-                                }
-                                // Operation cancellation requested during execution.
-                                else if (result == AsyncExecutionResult.WaitForPoll && op.IsCancellationRequested)
-                                {
-                                    Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
-                                    result = AsyncExecutionResult.Finished;
-                                }
+                                    , state: this, data: 0, asyncResult);
+                            // Operation finished, set CompletionFlags.
+                            if (result == AsyncExecutionResult.Finished)
+                            {
+                                op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
+                            }
+                            // Operation cancellation requested during execution.
+                            else if (result == AsyncExecutionResult.WaitForPoll && op.IsCancellationRequested)
+                            {
+                                Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                result = AsyncExecutionResult.Finished;
                             }
                             op.IsExecuting = result == AsyncExecutionResult.Executing;
 
