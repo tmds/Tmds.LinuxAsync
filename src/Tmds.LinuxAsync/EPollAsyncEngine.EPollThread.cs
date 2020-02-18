@@ -26,10 +26,12 @@ namespace Tmds.LinuxAsync
             private bool _disposed;
             private int _blockedState;
 
+            internal AsyncExecutionQueue? ExecutionQueue => _asyncExecutionQueue;
+
             struct ScheduledAction
             {
-                public EPollAsyncContext? AsyncContext;
-                public Action<EPollThread, EPollAsyncContext?> Action;
+                public object? State;
+                public Action<object?> Action;
             }
 
             private readonly object _actionQueueGate = new object();
@@ -101,7 +103,7 @@ namespace Tmds.LinuxAsync
                             EPollAsyncContext? context = asyncContextsForEvents[i];
                             if (context != null)
                             {
-                                context.ExecuteQueuedOperations(eventBuffer[i].events, triggeredByPoll: true, _asyncExecutionQueue, AsyncOperationResult.NoResult);
+                                context.HandleEvents(eventBuffer[i].events);
                             }
                         }
                         asyncContextsForEvents.Clear();
@@ -185,7 +187,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public unsafe void Post(Action<EPollThread, EPollAsyncContext?> action, EPollAsyncContext? context)
+            public unsafe void Post(Action<object?> action, object? state)
             {
                 // TODO: maybe special case when this is called from the EPollThread itself.
 
@@ -200,7 +202,7 @@ namespace Tmds.LinuxAsync
                     blockingState = Interlocked.CompareExchange(ref _blockedState, StateNotBlocked, StateBlocked);
                     _scheduledActions.Add(new ScheduledAction
                     {
-                        AsyncContext = context,
+                        State = state,
                         Action = action
                     });
                 }
@@ -245,7 +247,7 @@ namespace Tmds.LinuxAsync
                         _dummyReadBuffer = new byte[128];
                     }
                     executionEngine.AddRead(_pipeReadEnd!, _dummyReadBuffer,
-                        (AsyncExecutionQueue queue, AsyncOperationResult result, object? state, int data) =>
+                        (AsyncOperationResult result, object? state, int data) =>
                         {
                             if (result.IsError && result.Errno != EAGAIN)
                             {
@@ -269,7 +271,7 @@ namespace Tmds.LinuxAsync
                 {
                     foreach (var scheduleAction in actionQueue)
                     {
-                        scheduleAction.Action(this, scheduleAction.AsyncContext);
+                        scheduleAction.Action(scheduleAction.State);
                     }
                     actionQueue.Clear();
                 }
@@ -298,10 +300,6 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            internal void ExecuteQueuedOperations(int events, EPollAsyncContext context)
-            {
-                context.ExecuteQueuedOperations(events, triggeredByPoll: false, _asyncExecutionQueue, AsyncOperationResult.NoResult);
-            }
             public void Dispose()
             {
                 lock (_asyncContexts)

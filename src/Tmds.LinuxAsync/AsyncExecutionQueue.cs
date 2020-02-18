@@ -75,7 +75,7 @@ namespace Tmds.LinuxAsync
         }
     }
 
-    delegate void AsyncExecutionCallback(AsyncExecutionQueue queue, AsyncOperationResult result, object? state, int data);
+    delegate void AsyncExecutionCallback(AsyncOperationResult result, object? state, int data);
 
     // Supports batching operations for execution.
     abstract class AsyncExecutionQueue : IDisposable

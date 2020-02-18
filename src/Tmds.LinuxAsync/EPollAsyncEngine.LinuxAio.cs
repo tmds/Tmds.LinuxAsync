@@ -184,7 +184,7 @@ namespace Tmds.LinuxAsync
                     for (int i = queueOffset; i < (queueOffset + nr); i++)
                     {
                         Operation op = scheduled[i];
-                        op.Callback(this, results[i], op.State, op.Data);
+                        op.Callback(results[i], op.State, op.Data);
                     }
 
                     queueOffset += nr;

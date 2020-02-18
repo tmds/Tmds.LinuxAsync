@@ -16,6 +16,18 @@ namespace Tmds.LinuxAsync
     // * Handle signalling completion to the user.
     abstract class AsyncOperation
     {
+        sealed class AsyncOperationSentinel : AsyncOperation
+        {
+            public override bool IsReadNotWrite
+                => throw new System.InvalidOperationException();
+            public override void Complete()
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult TryExecute(bool isSync, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
+                => throw new System.InvalidOperationException();
+        }
+
+        public static readonly AsyncOperation DisposedSentinel = new AsyncOperationSentinel();
+
         // AsyncContext on whith the operation is performed.
         // This value gets set by AsyncContext, and cleared by the AsyncOperation.
         public AsyncContext? CurrentAsyncContext { get; set; }

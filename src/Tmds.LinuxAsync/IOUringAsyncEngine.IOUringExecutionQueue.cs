@@ -15,7 +15,7 @@ namespace Tmds.LinuxAsync
         {
             private ulong MaskBit = 1UL << 63;
             private const int MemoryAlignment = 8;
-            private const int SubmissionQueueLength = 512; // TODO
+            private const int SubmissionQueueRequestedLength = 512; // TODO
             // private const int CompletionQueueLength = CompletionQueueLength; // TODO
             Ring? _ring;
 
@@ -48,10 +48,11 @@ namespace Tmds.LinuxAsync
             private readonly Stack<Operation> _operationPool;
             private int _newOperationsQueued; // Number of operations added to submission queue, not yet submitted.
             private uint _sqesQueued; // Number of free entries in the submission queue.
+            private int _sqLength;
             private int _iovsLength;
             private bool _disposed;
             private readonly IntPtr _ioVectorTableMemory;
-            private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory); // TODO
+            private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory);
 
             public unsafe IOUringExecutionQueue() :
                 base(supportsPolling: true)
@@ -61,7 +62,8 @@ namespace Tmds.LinuxAsync
                 _newOperations = new List<Operation>();
                 try
                 {
-                    _ring = new Ring(SubmissionQueueLength);
+                    _ring = new Ring(SubmissionQueueRequestedLength);
+                    _sqLength = SubmissionQueueRequestedLength; // TODO _ring.SubmissionQueueSize?
                     if (!_ring.SupportsNoDrop)
                     {
                         throw new NotSupportedException("io_uring IORING_FEAT_NODROP is needed.");
@@ -70,12 +72,14 @@ namespace Tmds.LinuxAsync
                     {
                         throw new NotSupportedException("io_uring IORING_FEAT_SUBMIT_STABLE is needed.");
                     }
-                    _iovsLength = _ring.SubmissionQueueSize; // TODO
+                    _iovsLength = _sqLength; // TODO
                     _ioVectorTableMemory = AllocMemory(SizeOf.iovec * _iovsLength);
                 }
                 catch
                 {
                     FreeResources();
+
+                    throw;
                 }
             }
 
@@ -150,7 +154,7 @@ namespace Tmds.LinuxAsync
                     Debug.Assert(_newOperationsQueued == 0);
 
                     int iovIndex = 0;
-                    int sqesAvailable = ring.SubmissionQueueSize - (int)_sqesQueued;
+                    int sqesAvailable = _sqLength - (int)_sqesQueued;
                     iovec* iovs = IoVectorTable;
                     for (int i = 0; (i < _newOperations.Count) && (sqesAvailable > 2) && (iovIndex < _iovsLength); i++)
                     {
@@ -199,7 +203,7 @@ namespace Tmds.LinuxAsync
                                 }
                         }
                     }
-                    _sqesQueued = (uint)(ring.SubmissionQueueSize - sqesAvailable);
+                    _sqesQueued = (uint)(_sqLength - sqesAvailable);
                 }
 
                 bool operationsRemaining = (_newOperations.Count - _newOperationsQueued) > 0;
@@ -227,8 +231,8 @@ namespace Tmds.LinuxAsync
                         if (submitted == _sqesQueued)
                         {
                             _sqesQueued = 0;
+                            _newOperations.RemoveRange(0, _newOperationsQueued);
                             _newOperationsQueued = 0;
-                            _newOperations.Clear();
                         }
                         else
                         {
@@ -259,13 +263,13 @@ namespace Tmds.LinuxAsync
                         // Capture state
                         object? state = op.State;
                         int data = op.Data;
-                        AsyncExecutionCallback callback = op.Callback;
+                        AsyncExecutionCallback callback = op.Callback!;
 
                         // Return the operation
                         ReturnOperation(op);
 
                         // Complete
-                        callback(this, new AsyncOperationResult(completion.result), state, data);
+                        callback(new AsyncOperationResult(completion.result), state, data);
                     }
                     else
                     {
