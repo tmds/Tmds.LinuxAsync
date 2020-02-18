@@ -223,7 +223,7 @@ namespace Tmds.LinuxAsync
                 (AsyncOperationResult asyncResult, object? state, int data) =>
                     {
                         // TODO: do we need to do a volatile read of _disposed?
-                        if (asyncResult.Value == 8 || asyncResult.Errno == EAGAIN)
+                        if (asyncResult.Errno == EAGAIN || asyncResult.Value == 8)
                         {
                             ((IOUringThread)state!).AddReadFromPipe();
                         }
@@ -233,8 +233,7 @@ namespace Tmds.LinuxAsync
                         }
                         else
                         {
-                            ((IOUringThread)state!).AddReadFromPipe();
-                            // ThrowHelper.ThrowIndexOutOfRange(asyncResult.Value); // TODO...
+                            ThrowHelper.ThrowIndexOutOfRange(asyncResult.Value);
                         }
                     }
                 , this, 0);
