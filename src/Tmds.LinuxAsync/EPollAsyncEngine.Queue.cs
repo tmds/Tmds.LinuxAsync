@@ -7,7 +7,7 @@ namespace Tmds.LinuxAsync
 {
     public partial class EPollAsyncEngine
     {
-        sealed class Queue
+        sealed class Queue : AsyncOperationQueueBase
         {
             private readonly EPollThread _thread;
             private int _eventCounter;
@@ -16,9 +16,6 @@ namespace Tmds.LinuxAsync
             {
                 _thread = thread;
             }
-
-            private object Gate => this;
-            private AsyncOperation? _tail;
 
             public bool Dispose()
             {
@@ -173,84 +170,6 @@ namespace Tmds.LinuxAsync
                 {
                     operation.Complete();
                 }
-            }
-
-            private static bool TryQueueTakeFirst(ref AsyncOperation? tail, [NotNullWhen(true)]out AsyncOperation? first)
-            {
-                first = tail?.Next;
-                if (first != null)
-                {
-                    QueueRemove(ref tail, first);
-                    return true;
-                }
-                else
-                {
-                    return false;
-                }
-            }
-
-            private static AsyncOperation? QueueGetFirst(AsyncOperation? tail)
-                => tail?.Next;
-
-            private static void QueueAdd(ref AsyncOperation? tail, AsyncOperation operation)
-            {
-                Debug.Assert(operation.Next == null);
-                operation.Next = operation;
-
-                if (tail != null)
-                {
-                    operation.Next = tail.Next;
-                    tail.Next = operation;
-                }
-
-                tail = operation;
-            }
-
-            private static bool QueueRemove(ref AsyncOperation? tail, AsyncOperation operation)
-            {
-                AsyncOperation? tail_ = tail;
-                if (tail_ == null)
-                {
-                    return false;
-                }
-
-                if (tail_ == operation)
-                {
-                    if (tail_.Next == operation)
-                    {
-                        tail = null;
-                    }
-                    else
-                    {
-                        AsyncOperation newTail = tail_.Next!;
-                        AsyncOperation newTailNext = newTail.Next!;
-                        while (newTailNext != tail_)
-                        {
-                            newTail = newTailNext;
-                        }
-                        tail = newTail;
-                    }
-
-                    operation.Next = null;
-                    return true;
-                }
-                else
-                {
-                    AsyncOperation it = tail_;
-                    do
-                    {
-                        AsyncOperation next = it.Next!;
-                        if (next == operation)
-                        {
-                            it.Next = next.Next;
-                            operation.Next = null;
-                            return true;
-                        }
-                        it = next;
-                    } while (it != tail_);
-                }
-
-                return false;
             }
         }
     }
