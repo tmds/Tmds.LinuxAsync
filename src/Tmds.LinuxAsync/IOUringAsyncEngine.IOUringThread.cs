@@ -23,10 +23,12 @@ namespace Tmds.LinuxAsync
             private bool _disposed;
             private int _blockedState;
 
+            internal AsyncExecutionQueue ExecutionQueue => _iouring!;
+
             struct ScheduledAction
             {
-                public IOUringAsyncContext? AsyncContext;
-                public Action<IOUringThread, IOUringAsyncContext?> Action;
+                public object? State;
+                public Action<object?> Action;
             }
 
             private readonly object _actionQueueGate = new object();
@@ -129,7 +131,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public unsafe void Post(Action<IOUringThread, IOUringAsyncContext?> action, IOUringAsyncContext? context)
+            public unsafe void Post(Action<object?> action, object? state)
             {
                 // TODO: maybe special case when this is called from the IOUringThread itself.
 
@@ -144,7 +146,7 @@ namespace Tmds.LinuxAsync
                     blockingState = Interlocked.CompareExchange(ref _blockedState, StateNotBlocked, StateBlocked);
                     _scheduledActions.Add(new ScheduledAction
                     {
-                        AsyncContext = context,
+                        State = state,
                         Action = action
                     });
                 }
@@ -182,7 +184,7 @@ namespace Tmds.LinuxAsync
                 {
                     foreach (var scheduleAction in actionQueue)
                     {
-                        scheduleAction.Action(this, scheduleAction.AsyncContext);
+                        scheduleAction.Action(scheduleAction.State);
                     }
                     actionQueue.Clear();
                 }
@@ -197,17 +199,6 @@ namespace Tmds.LinuxAsync
                         return _scheduledActions.Count > 0;
                     }
                 }
-            }
-
-            internal void ExecuteQueuedReads(IOUringAsyncContext context)
-            {
-                context.ExecuteQueuedReads(_iouring, AsyncOperationResult.NoResult);
-            }
-
-
-            internal void ExecuteQueuedWrites(IOUringAsyncContext context)
-            {
-                context.ExecuteQueuedWrites(_iouring, AsyncOperationResult.NoResult);
             }
 
             public void Dispose()
@@ -229,7 +220,7 @@ namespace Tmds.LinuxAsync
             private void AddReadFromPipe()
             {
                 _iouring!.AddRead(_pipeReadEnd!, _dummyReadBuffer,
-                (AsyncExecutionQueue queue, AsyncOperationResult asyncResult, object? state, int data) =>
+                (AsyncOperationResult asyncResult, object? state, int data) =>
                     {
                         // TODO: do we need to do a volatile read of _disposed?
                         if (asyncResult.Value == 8 || asyncResult.Errno == EAGAIN)

@@ -51,7 +51,7 @@ namespace Tmds.LinuxAsync
             private int _iovsLength;
             private bool _disposed;
             private readonly IntPtr _ioVectorTableMemory;
-            private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory); // TODO
+            private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory);
 
             public unsafe IOUringExecutionQueue() :
                 base(supportsPolling: true)
@@ -259,13 +259,13 @@ namespace Tmds.LinuxAsync
                         // Capture state
                         object? state = op.State;
                         int data = op.Data;
-                        AsyncExecutionCallback callback = op.Callback;
+                        AsyncExecutionCallback callback = op.Callback!;
 
                         // Return the operation
                         ReturnOperation(op);
 
                         // Complete
-                        callback(this, new AsyncOperationResult(completion.result), state, data);
+                        callback(new AsyncOperationResult(completion.result), state, data);
                     }
                     else
                     {
