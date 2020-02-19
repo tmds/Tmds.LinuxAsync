@@ -226,16 +226,17 @@ namespace Tmds.LinuxAsync
                         // io_uring_enter
                         _ring!.Submit();
                         uint submitted = _ring!.Flush((uint)_sqesQueued, minComplete: waitForCompletion ? 1U : 0);
+                        _sqesQueued -= submitted;
 
-                        // only when the kernel runs out of resources (unlikely), we'll not be able to submit all requests.
-                        if (submitted == _sqesQueued)
+                        if (_sqesQueued == 0)
                         {
-                            _sqesQueued = 0;
                             _newOperations.RemoveRange(0, _newOperationsQueued);
                             _newOperationsQueued = 0;
                         }
                         else
                         {
+                            // We were not able to submit all requests.
+
                             // TODO: This seems similar to EAGAIN, not enough resources?
                             // Or does it happen in other cases?
                             // Is there a semantical difference between 0 and EAGAIN;
