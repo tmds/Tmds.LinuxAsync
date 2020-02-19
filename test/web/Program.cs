@@ -26,6 +26,9 @@ namespace web
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>
             Host.CreateDefaultBuilder(args)
+#if RELEASE
+                .ConfigureLogging(loggingBuilder => loggingBuilder.ClearProviders())
+#endif
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseStartup<Startup>();
