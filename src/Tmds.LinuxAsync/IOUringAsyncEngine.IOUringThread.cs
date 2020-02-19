@@ -50,21 +50,6 @@ namespace Tmds.LinuxAsync
                 _thread.Start();
             }
 
-            private bool IoUringMayWait()
-            {
-                bool mayWait;
-                lock (_actionQueueGate)
-                {
-                    // We can only wait when there are no scheduled actions we must run.
-                    mayWait = _scheduledActions.Count == 0;
-                    if (mayWait)
-                    {
-                        Volatile.Write(ref _blockedState, StateBlocked);
-                    }
-                }
-                return mayWait;
-            }
-
             private unsafe void EventLoop()
             {
                 try
@@ -72,7 +57,17 @@ namespace Tmds.LinuxAsync
                     IOUringExecutionQueue iouring = _iouring!;
                     while (!_disposed)
                     {
-                        iouring.SubmitAndWait((object s) => ((IOUringThread)s).IoUringMayWait(), this);
+                        bool mayWait;
+                        lock (_actionQueueGate)
+                        {
+                            // We can only wait when there are no scheduled actions we must run.
+                            mayWait = _scheduledActions.Count == 0;
+                            if (mayWait)
+                            {
+                                Volatile.Write(ref _blockedState, StateBlocked);
+                            }
+                        }
+                        iouring.SubmitAndWait(mayWait);
                         Volatile.Write(ref _blockedState, StateNotBlocked);
 
                         iouring.ExecuteCompletions();
