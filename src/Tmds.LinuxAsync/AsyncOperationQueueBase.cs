@@ -106,10 +106,10 @@ namespace Tmds.LinuxAsync
                     else
                     {
                         // Update tail
-                        while (_tail!.Next != operation)
+                        do
                         {
                             _tail = _tail.Next;
-                        }
+                        } while (_tail!.Next != operation);
                         // Update head
                         _tail.Next = operation.Next;
                     }
@@ -131,6 +131,7 @@ namespace Tmds.LinuxAsync
                         }
                         break;
                     }
+                    nextOperation = ref nextOperation.Next!;
                 } while (nextOperation != _tail);
             }
             return result;
