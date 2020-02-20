@@ -99,7 +99,6 @@ namespace Tmds.LinuxAsync
                 result = operation.RequestCancellationAsync(flags);
                 if (result == CancellationRequestResult.Cancelled)
                 {
-                    result = CancellationRequestResult.Cancelled;
                     if (operation.Next == operation) // We're the only operation.
                     {
                         _tail = null;
@@ -127,7 +126,6 @@ namespace Tmds.LinuxAsync
                         result = operation.RequestCancellationAsync(flags);
                         if (result == CancellationRequestResult.Cancelled)
                         {
-                            result = CancellationRequestResult.Cancelled;
                             nextOperation = operation.Next!;
                             operation.Next = null;
                         }
