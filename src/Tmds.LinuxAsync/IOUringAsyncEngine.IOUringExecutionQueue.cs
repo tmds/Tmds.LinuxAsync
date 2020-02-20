@@ -209,9 +209,10 @@ namespace Tmds.LinuxAsync
                         case OperationType.Cancel:
                             {
                                 sqesAvailable -= 2;
+                                // Cancel the operation and possibly associated poll operation.
                                 ring.PrepareCancel(opUserData: key | MaskBit, userData: IgnoredData);
                                 ring.PrepareCancel(opUserData: key,           userData: IgnoredData);
-                                // Cancel operations aren't added to the dictionary.
+                                // Cancel operations aren't added to the dictionary, we can return it now.
                                 ReturnOperation(op);
                                 break;
                             }
