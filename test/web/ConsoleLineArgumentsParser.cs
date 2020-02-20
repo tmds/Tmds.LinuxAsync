@@ -1,6 +1,8 @@
 ﻿using CommandLine;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace web
 {
@@ -44,12 +46,30 @@ namespace web
             using (var parser = CreateParser())
             {
                 parser
-                    .ParseArguments<CommandLineOptions>(args)
+                    .ParseArguments<CommandLineOptions>(Workaround(args))
                     .WithParsed(options => { commandLineOptions = options; isSuccess = true; })
                     .WithNotParsed(_ => isSuccess = false);
             }
 
             return (isSuccess, commandLineOptions);
+        }
+
+        // CommandLineParsers does not handle --engine=epoll properly, so we need this ugly workaround..
+        private static IEnumerable<string> Workaround(string[] args)
+        {
+            foreach (var arg in args)
+            {
+                int index = arg.IndexOf('=', StringComparison.Ordinal);
+                if (index > 0)
+                {
+                    yield return arg.Substring(0, index);
+                    yield return arg.Substring(index + 1);
+                }
+                else
+                {
+                    yield return arg;
+                }
+            }
         }
 
         private static Parser CreateParser()
@@ -60,7 +80,7 @@ namespace web
                 settings.EnableDashDash = true;
                 settings.HelpWriter = Console.Out;
                 settings.IgnoreUnknownArguments = true; // for args that we pass to Host.CreateDefaultBuilder()
-                        settings.MaximumDisplayWidth = GetMaximumDisplayWidth();
+                settings.MaximumDisplayWidth = GetMaximumDisplayWidth();
             });
 
         private static int GetMaximumDisplayWidth()
