@@ -89,7 +89,7 @@ namespace Tmds.LinuxAsync
 
                             op.IsExecuting = result == AsyncExecutionResult.Executing;
 
-                            if (result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled)
+                            if (result == AsyncExecutionResult.Finished)
                             {
                                 QueueRemove(ref _tail, op);
                                 QueueAdd(ref completedTail, op);
