@@ -1,7 +1,5 @@
 ﻿using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
-using static Tmds.Linux.LibC;
 
 namespace Tmds.LinuxAsync
 {
@@ -19,6 +17,7 @@ namespace Tmds.LinuxAsync
 
             public bool Dispose()
             {
+                // TODO: handle cancellation and wait for execution to finish.
                 AsyncOperation? tail;
                 lock (Gate)
                 {
@@ -66,24 +65,31 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            AsyncExecutionResult result = op.TryExecute(triggeredByPoll, _thread.ExecutionQueue,
+                            bool isCancellationRequested = op.IsCancellationRequested;
+
+                            AsyncExecutionResult result = op.TryExecute(triggeredByPoll, isCancellationRequested, _thread.ExecutionQueue,
                                     (AsyncOperationResult aResult, object? state, int data)
                                         => ((Queue)state!).ExecuteQueued(triggeredByPoll: false, aResult)
                                     , state: this, data: 0, asyncResult);
+
+                            if (isCancellationRequested)
+                            {
+                                Debug.Assert(result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled);
+                            }
                             // Operation finished, set CompletionFlags.
                             if (result == AsyncExecutionResult.Finished)
                             {
                                 op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
                             }
-                            // Operation cancellation requested during execution.
-                            else if (result == AsyncExecutionResult.WaitForPoll && op.IsCancellationRequested)
+                            else if (result == AsyncExecutionResult.Cancelled)
                             {
                                 Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
                                 result = AsyncExecutionResult.Finished;
                             }
+
                             op.IsExecuting = result == AsyncExecutionResult.Executing;
 
-                            if (result == AsyncExecutionResult.Finished)
+                            if (result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled)
                             {
                                 QueueRemove(ref _tail, op);
                                 QueueAdd(ref completedTail, op);
@@ -155,18 +161,19 @@ namespace Tmds.LinuxAsync
 
             public void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
             {
-                bool cancelled = false;
+                CancellationRequestResult result;
 
                 lock (Gate)
                 {
-                    cancelled = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceled | flags);
-                    if (cancelled)
+                    if (operation.IsCancellationRequested)
                     {
-                        QueueRemove(ref _tail, operation);
+                        return;
                     }
+
+                    result = RequestCancellationAsync(operation, flags);
                 }
 
-                if (cancelled)
+                if (result == CancellationRequestResult.Cancelled)
                 {
                     operation.Complete();
                 }

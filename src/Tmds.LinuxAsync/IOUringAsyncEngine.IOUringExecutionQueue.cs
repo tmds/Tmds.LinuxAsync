@@ -13,7 +13,8 @@ namespace Tmds.LinuxAsync
     {
         sealed class IOUringExecutionQueue : AsyncExecutionQueue
         {
-            private ulong MaskBit = 1UL << 63;
+            private const ulong MaskBit = 1UL << 63;
+            private const ulong IgnoredData = ulong.MaxValue | MaskBit;
             private const int MemoryAlignment = 8;
             private const int SubmissionQueueRequestedLength = 512; // TODO
             // private const int CompletionQueueLength = CompletionQueueLength; // TODO
@@ -24,7 +25,8 @@ namespace Tmds.LinuxAsync
                 Read,
                 Write,
                 PollIn,
-                PollOut
+                PollOut,
+                Cancel
             }
 
             // TODO: maybe make this an interface that is implemented by a (read/write) Queue class
@@ -136,6 +138,17 @@ namespace Tmds.LinuxAsync
                 AddNewOperation(key, operation);
             }
 
+            public override void AddCancel(SafeHandle handle, int data)
+            {
+                ulong key = CalculateKey(handle, data);
+                Operation operation = RentOperation();
+                operation.Handle = handle;
+                operation.OperationType = OperationType.Cancel;
+                operation.Data = data;
+                // note: we're not adding this to the _operations Dictionary.
+                _newOperations.Add(operation);
+            }
+
             private void AddNewOperation(ulong key, Operation operation)
             {
                 _operations.Add(key, operation);
@@ -146,7 +159,7 @@ namespace Tmds.LinuxAsync
             {
                 Ring ring = _ring!;
                 int iovIndex = _iovsUsed;
-                int sqesAvailable = _ring.SubmissionQueueSize - (int)_sqesQueued;
+                int sqesAvailable = ring.SubmissionQueueSize - (int)_sqesQueued;
                 iovec* iovs = IoVectorTable;
                 for (int i = 0; (i < _newOperations.Count) && (sqesAvailable > 2) && (iovIndex < _iovsLength); i++)
                 {
@@ -193,10 +206,19 @@ namespace Tmds.LinuxAsync
                                 ring.PreparePollAdd(fd, (ushort)POLLOUT, key);
                                 break;
                             }
+                        case OperationType.Cancel:
+                            {
+                                sqesAvailable -= 2;
+                                ring.PrepareCancel(opUserData: key | MaskBit, userData: IgnoredData);
+                                ring.PrepareCancel(opUserData: key,           userData: IgnoredData);
+                                // Cancel operations aren't added to the dictionary.
+                                ReturnOperation(op);
+                                break;
+                            }
                     }
                 }
                 _iovsUsed = iovIndex;
-                _sqesQueued = (uint)(_ring.SubmissionQueueSize - sqesAvailable);
+                _sqesQueued = (uint)(ring.SubmissionQueueSize - sqesAvailable);
 
                 bool operationsRemaining = (_newOperations.Count - _newOperationsQueued) > 0;
                 return operationsRemaining;

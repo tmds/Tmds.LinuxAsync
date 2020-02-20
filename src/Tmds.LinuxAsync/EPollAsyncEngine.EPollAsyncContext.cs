@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
-using System.Threading;
 using static Tmds.Linux.LibC;
 
 namespace Tmds.LinuxAsync
@@ -74,9 +72,9 @@ namespace Tmds.LinuxAsync
                 {
                     operation.Next = null;
 
-                    bool cancelled = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceledSync);
-                    Debug.Assert(cancelled);
-                    if (cancelled)
+                    CancellationRequestResult result = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceledSync);
+                    Debug.Assert(result == CancellationRequestResult.Cancelled);
+                    if (result == CancellationRequestResult.Cancelled)
                     {
                         operation.Complete();
                     }

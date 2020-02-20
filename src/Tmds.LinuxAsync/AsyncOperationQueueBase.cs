@@ -85,5 +85,57 @@ namespace Tmds.LinuxAsync
 
             return false;
         }
+
+        // Requests cancellation of a queued operation.
+        // If the operation is not on the queue (because it already completed), NotFound is returned.
+        // If the operation is not executing, it is removed from the queue and Cancelled is returned.
+        // If the operation is executing, it stays on the queue, the operation gets marked as cancellation requested,
+        // and Requested is returned.
+        protected CancellationRequestResult RequestCancellationAsync(AsyncOperation operation, OperationCompletionFlags flags)
+        {
+            CancellationRequestResult result = CancellationRequestResult.NotFound;
+            if (_tail == operation) // We're the last operation
+            {
+                result = operation.RequestCancellationAsync(flags);
+                if (result == CancellationRequestResult.Cancelled)
+                {
+                    result = CancellationRequestResult.Cancelled;
+                    if (operation.Next == operation) // We're the only operation.
+                    {
+                        _tail = null;
+                    }
+                    else
+                    {
+                        // Update tail
+                        while (_tail!.Next != operation)
+                        {
+                            _tail = _tail.Next;
+                        }
+                        // Update head
+                        _tail.Next = operation.Next;
+                    }
+                    operation.Next = null;
+                }
+            }
+            else if (_tail != null) // The list is multiple operations and we're not the last
+            {
+                ref AsyncOperation nextOperation = ref _tail.Next!;
+                do
+                {
+                    if (nextOperation == operation)
+                    {
+                        result = operation.RequestCancellationAsync(flags);
+                        if (result == CancellationRequestResult.Cancelled)
+                        {
+                            result = CancellationRequestResult.Cancelled;
+                            nextOperation = operation.Next!;
+                            operation.Next = null;
+                        }
+                        break;
+                    }
+                } while (nextOperation != _tail);
+            }
+            return result;
+        }
     }
 }

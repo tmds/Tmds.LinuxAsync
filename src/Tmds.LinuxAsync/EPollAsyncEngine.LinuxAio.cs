@@ -317,6 +317,11 @@ namespace Tmds.LinuxAsync
             {
                 throw new NotSupportedException();
             }
+
+            public override void AddCancel(SafeHandle handle, int data)
+            {
+                throw new NotSupportedException();
+            }
         }
     }
 }
