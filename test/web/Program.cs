@@ -2,6 +2,9 @@ using System;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 using Tmds.LinuxAsync;
+#if RELEASE
+using Microsoft.Extensions.Logging;
+#endif
 
 namespace web
 {
