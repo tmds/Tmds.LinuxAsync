@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using static Tmds.Linux.LibC;
 
@@ -10,14 +9,17 @@ namespace Tmds.LinuxAsync
         sealed class Queue : AsyncOperationQueueBase
         {
             private readonly IOUringThread _thread;
+            private readonly IOUringAsyncContext _context;
 
-            public Queue(IOUringThread thread)
+            public Queue(IOUringThread thread, IOUringAsyncContext context)
             {
                 _thread = thread;
+                _context = context;
             }
 
             public bool Dispose()
             {
+                // TODO: handle cancellation and wait for execution to finish.
                 AsyncOperation? tail;
                 lock (Gate)
                 {
@@ -63,30 +65,26 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            AsyncExecutionResult result;
-                            if (asyncResult.HasResult && asyncResult.IsCancelledError)
+                            bool isCancellationRequested = op.IsCancellationRequested;
+
+                            AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, isCancellationRequested, _thread.ExecutionQueue,
+                                (AsyncOperationResult aResult, object? state, int data)
+                                    => ((Queue)state!).ExecuteQueued(aResult)
+                            , state: this, DataForOperation(op), asyncResult);
+
+                            if (isCancellationRequested)
                             {
-                                // Operation got cancelled during execution.
-                                result = AsyncExecutionResult.Finished;
+                                Debug.Assert(result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled);
                             }
-                            else
+                            // Operation finished, set CompletionFlags.
+                            if (result == AsyncExecutionResult.Finished)
                             {
-                                int data = op.IsReadNotWrite ? POLLIN : POLLOUT;
-                                result = op.TryExecute(triggeredByPoll: false, _thread.ExecutionQueue,
-                                    (AsyncOperationResult aResult, object? state, int data)
-                                        => ((Queue)state!).ExecuteQueued(aResult)
-                                , state: this, data, asyncResult);
-                                // Operation finished, set CompletionFlags.
-                                if (result == AsyncExecutionResult.Finished)
-                                {
-                                    op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
-                                }
-                                // Operation cancellation requested during execution.
-                                else if (result == AsyncExecutionResult.WaitForPoll && op.IsCancellationRequested)
-                                {
-                                    Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
-                                    result = AsyncExecutionResult.Finished;
-                                }
+                                op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
+                            }
+                            else if (result == AsyncExecutionResult.Cancelled)
+                            {
+                                Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                result = AsyncExecutionResult.Finished;
                             }
                             op.IsExecuting = result == AsyncExecutionResult.Executing;
 
@@ -134,6 +132,7 @@ namespace Tmds.LinuxAsync
                     }
                     if (postCheck)
                     {
+                        // TODO: an alternative could be to add the operation to the executionqueue here directly.
                         _thread.Post((object? s) => ((Queue)s!).ExecuteQueued(AsyncOperationResult.NoResult), this);
                     }
                 }
@@ -146,6 +145,46 @@ namespace Tmds.LinuxAsync
 
                 return !executed;
             }
+
+            public void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
+            {
+                CancellationRequestResult result;
+
+                lock (Gate)
+                {
+                    if (operation.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    result = RequestCancellationAsync(operation, flags);
+                    if (result == CancellationRequestResult.Requested)
+                    {
+                        // TODO: an alternative could be to add the operation to the executionqueue here directly.
+                        _thread.Post((object? s) => ((Queue)s!).CancelExecuting(), this);
+                    }
+                }
+
+                if (result == CancellationRequestResult.Cancelled)
+                {
+                    operation.Complete();
+                }
+            }
+
+            private void CancelExecuting()
+            {
+                lock (Gate)
+                {
+                    AsyncOperation? op = _tail?.Next;
+                    if (op != null && op.IsCancellationRequested)
+                    {
+                        _thread.ExecutionQueue.AddCancel(_context.Handle, DataForOperation(op));
+                    }
+                }
+            }
+
+            private int DataForOperation(AsyncOperation op)
+                => op.IsReadNotWrite ? POLLIN : POLLOUT;
         }
     }
 }

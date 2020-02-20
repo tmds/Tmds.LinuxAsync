@@ -25,15 +25,6 @@ namespace Tmds.LinuxAsync
             }
         }
 
-        public bool IsCancelledError
-        {
-            get
-            {
-                VerifyHasResult();
-                return _result == -Tmds.Linux.LibC.ECANCELED;
-            }
-        }
-
         public int Errno
         {
             get
@@ -88,6 +79,8 @@ namespace Tmds.LinuxAsync
         public abstract void AddPollIn(SafeHandle handle, AsyncExecutionCallback asyncExecutionCallback, object? state, int data);
         // Add a poll out.
         public abstract void AddPollOut(SafeHandle handle, AsyncExecutionCallback asyncExecutionCallback, object? state, int data);
+        // Cancels an operation.
+        public abstract void AddCancel(SafeHandle handle, int data);
 
         // Indicates support for PollIn/Out and 0-byte reads.
         public bool SupportsPolling { get; }

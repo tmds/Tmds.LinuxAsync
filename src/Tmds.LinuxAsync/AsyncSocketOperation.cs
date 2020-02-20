@@ -58,7 +58,7 @@ namespace Tmds.LinuxAsync
             return false;
         }
 
-        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             AsyncExecutionResult result;
 
@@ -66,16 +66,16 @@ namespace Tmds.LinuxAsync
             switch (Saea.CurrentOperation)
             {
                 case SocketAsyncOperation.Receive:
-                    result = TryExecuteReceive(triggeredByPoll, executionQueue, callback, state, data, asyncResult);
+                    result = TryExecuteReceive(triggeredByPoll, isCancellationRequested, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.Send:
-                    result = TryExecuteSend(executionQueue, callback, state, data, asyncResult);
+                    result = TryExecuteSend(isCancellationRequested, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.Accept:
-                    result = TryExecuteAccept(executionQueue, callback, state, data, asyncResult);
+                    result = TryExecuteAccept(isCancellationRequested, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.Connect:
-                    result = TryExecuteConnect(executionQueue, callback, state, data, asyncResult);
+                    result = TryExecuteConnect(isCancellationRequested, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.None:
                     result = AsyncExecutionResult.Finished;
@@ -90,7 +90,7 @@ namespace Tmds.LinuxAsync
             return result;
         }
 
-        private unsafe AsyncExecutionResult TryExecuteReceive(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private unsafe AsyncExecutionResult TryExecuteReceive(bool triggeredByPoll, bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             IList<ArraySegment<byte>>? bufferList = Saea.BufferList;
             if (bufferList != null)
@@ -126,6 +126,13 @@ namespace Tmds.LinuxAsync
                     socketError = SocketError.Success;
                     result = AsyncExecutionResult.Finished;
                 }
+            }
+
+            if (isCancellationRequested && result != AsyncExecutionResult.Finished)
+            {
+                Saea.BytesTransferred = 0;
+                Saea.SocketError = SocketError.OperationAborted;
+                return AsyncExecutionResult.Cancelled;
             }
 
             // When there is a pollable executionQueue, use it to poll, and then try the operation.
@@ -174,26 +181,26 @@ namespace Tmds.LinuxAsync
             return result;
         }
 
-        private unsafe AsyncExecutionResult TryExecuteSend(AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
+        private unsafe AsyncExecutionResult TryExecuteSend(bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
         {
             IList<ArraySegment<byte>>? bufferList = Saea.BufferList;
 
             if (bufferList == null)
             {
-                return SendSingleBuffer(Saea.MemoryBuffer, executionQueue, callback, state, data, result);
+                return SendSingleBuffer(Saea.MemoryBuffer, isCancellationRequested, executionQueue, callback, state, data, result);
             }
             else
             {
-                return SendMultipleBuffers(bufferList, executionQueue, callback, state, data, result);
+                return SendMultipleBuffers(bufferList, isCancellationRequested, executionQueue, callback, state, data, result);
             }
         }
 
-        private unsafe AsyncExecutionResult SendMultipleBuffers(IList<ArraySegment<byte>> buffers, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private unsafe AsyncExecutionResult SendMultipleBuffers(IList<ArraySegment<byte>> buffers, bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             // TODO: really support multi-buffer sends...
             for (; _bufferIndex < buffers.Count; _bufferIndex++)
             {
-                AsyncExecutionResult bufferSendResult = SendSingleBuffer(buffers[_bufferIndex], executionQueue, callback, state, data, asyncResult);
+                AsyncExecutionResult bufferSendResult = SendSingleBuffer(buffers[_bufferIndex], isCancellationRequested, executionQueue, callback, state, data, asyncResult);
                 if (bufferSendResult == AsyncExecutionResult.WaitForPoll || bufferSendResult == AsyncExecutionResult.Executing)
                 {
                     return bufferSendResult;
@@ -207,7 +214,7 @@ namespace Tmds.LinuxAsync
             return AsyncExecutionResult.Finished;
         }
 
-        private AsyncExecutionResult SendSingleBuffer(Memory<byte> memory, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private AsyncExecutionResult SendSingleBuffer(Memory<byte> memory, bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             SocketError socketError = SocketError.SocketError;
             AsyncExecutionResult result = AsyncExecutionResult.Executing;
@@ -238,6 +245,13 @@ namespace Tmds.LinuxAsync
                         result = AsyncExecutionResult.Finished;
                     }
                 }
+            }
+
+            if (isCancellationRequested && result != AsyncExecutionResult.Finished)
+            {
+                Saea.BytesTransferred = _bytesTransferredTotal;
+                Saea.SocketError = SocketError.OperationAborted;
+                return AsyncExecutionResult.Cancelled;
             }
 
             // When there is a pollable executionQueue, use it to poll, and then try the operation.
@@ -289,7 +303,7 @@ namespace Tmds.LinuxAsync
             return result;
         }
 
-        private AsyncExecutionResult TryExecuteConnect(AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private AsyncExecutionResult TryExecuteConnect(bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             Socket? socket = Saea.CurrentSocket;
             IPEndPoint? ipEndPoint = Saea.RemoteEndPoint as IPEndPoint;
@@ -325,6 +339,12 @@ namespace Tmds.LinuxAsync
                 }
             }
 
+            if (isCancellationRequested)
+            {
+                Saea.SocketError = SocketError.OperationAborted;
+                return AsyncExecutionResult.Cancelled;
+            }
+
             // poll
             if (hasPollableExecutionQueue)
             {
@@ -337,7 +357,7 @@ namespace Tmds.LinuxAsync
             }
         }
 
-        private AsyncExecutionResult TryExecuteAccept(AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private AsyncExecutionResult TryExecuteAccept(bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             Socket? socket = Saea.CurrentSocket;
 
@@ -357,6 +377,12 @@ namespace Tmds.LinuxAsync
                     Saea.AcceptSocket = acceptedSocket;
                     return AsyncExecutionResult.Finished;
                 }
+            }
+
+            if (isCancellationRequested)
+            {
+                Saea.SocketError = SocketError.OperationAborted;
+                return AsyncExecutionResult.Cancelled;
             }
 
             // poll

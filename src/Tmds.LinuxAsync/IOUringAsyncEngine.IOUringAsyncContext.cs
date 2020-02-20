@@ -20,11 +20,13 @@ namespace Tmds.LinuxAsync
 
             public int Key => _fd;
 
+            public SafeHandle Handle => _handle!;
+
             public IOUringAsyncContext(IOUringThread thread, SafeHandle handle)
             {
                 _iouring = thread;
-                _writeQueue = new Queue(thread);
-                _readQueue = new Queue(thread);
+                _writeQueue = new Queue(thread, this);
+                _readQueue = new Queue(thread, this);
                 bool success = false;
                 handle.DangerousAddRef(ref success);
                 _fd = handle.DangerousGetHandle().ToInt32();
@@ -71,9 +73,9 @@ namespace Tmds.LinuxAsync
                 {
                     operation.Next = null;
 
-                    bool cancelled = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceledSync);
-                    Debug.Assert(cancelled);
-                    if (cancelled)
+                    CancellationRequestResult result = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceledSync);
+                    Debug.Assert(result == CancellationRequestResult.Cancelled);
+                    if (result == CancellationRequestResult.Cancelled)
                     {
                         operation.Complete();
                     }
@@ -100,8 +102,14 @@ namespace Tmds.LinuxAsync
 
             internal override void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
             {
-                // TODO...
-                throw new NotSupportedException();
+                if (operation.IsReadNotWrite)
+                {
+                    _readQueue.TryCancelAndComplete(operation, flags);
+                }
+                else
+                {
+                    _writeQueue.TryCancelAndComplete(operation, flags);
+                }
             }
         }
     }
