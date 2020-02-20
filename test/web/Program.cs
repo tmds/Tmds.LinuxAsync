@@ -25,13 +25,13 @@ namespace web
         [Option('a', "aio", Required = false, Default = true, HelpText = "Use Linux AIO")]
         public bool UseAio { get; set; }
 
-        [Option('c', "dispatch-continuations", Required = false, Default = false, HelpText = "Dispatch Continuations")]
+        [Option('c', "dispatch-continuations", Required = false, Default = true, HelpText = "Dispatch Continuations")]
         public bool DispatchContinuations { get; set; }
 
-        [Option('s', "defer-sends", Required = false, Default = true, HelpText = "Defer Sends")]
+        [Option('s', "defer-sends", Required = false, Default = false, HelpText = "Defer Sends")]
         public bool DeferSends { get; set; }
 
-        [Option('r', "defer-receives", Required = false, Default = true, HelpText = "Defer Receives")]
+        [Option('r', "defer-receives", Required = false, Default = false, HelpText = "Defer Receives")]
         public bool DeferReceives { get; set; }
     }
 
