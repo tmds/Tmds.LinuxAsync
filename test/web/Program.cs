@@ -1,9 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using CommandLine;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Tmds.LinuxAsync;
 
 namespace web
@@ -52,6 +52,9 @@ namespace web
             AsyncEngine.SocketEngine = CreateAsyncEngine(commandLineOptions);
 
             return Host.CreateDefaultBuilder(args)
+#if RELEASE
+                .ConfigureLogging(loggingBuilder => loggingBuilder.ClearProviders())
+#endif
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseStartup<Startup>();
