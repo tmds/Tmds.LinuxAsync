@@ -30,9 +30,9 @@ namespace web
                     webBuilder.UseStartup<Startup>();
                     webBuilder.UseLinuxAsyncSockets(options =>
                         {
-                            options.DispatchContinuations = commandLineOptions.DispatchContinuations;
-                            options.DeferSends = commandLineOptions.DeferSends;
-                            options.DeferReceives = commandLineOptions.DeferReceives;
+                            options.DispatchContinuations = commandLineOptions.DispatchContinuations.Value;
+                            options.DeferSends = commandLineOptions.DeferSends.Value;
+                            options.DeferReceives = commandLineOptions.DeferReceives.Value;
                         }
                     );
                 });
@@ -43,7 +43,7 @@ namespace web
             switch (commandLineOptions.SocketEngine)
             {
                 case SocketEngineType.EPoll:
-                    return new EPollAsyncEngine(threadCount: commandLineOptions.ThreadCount, useLinuxAio: commandLineOptions.UseAio);
+                    return new EPollAsyncEngine(threadCount: commandLineOptions.ThreadCount, useLinuxAio: commandLineOptions.UseAio.Value);
                 case SocketEngineType.IOUring:
                     return new IOUringAsyncEngine(threadCount: commandLineOptions.ThreadCount);
                 default:

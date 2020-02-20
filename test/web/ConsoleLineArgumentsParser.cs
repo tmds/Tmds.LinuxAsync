@@ -12,6 +12,9 @@ namespace web
 
     public class CommandLineOptions
     {
+        // the booleans MUST be nullable, otherwise --arg false does not work...
+        // see https://github.com/commandlineparser/commandline/issues/290 for more details
+
         [Option('e', "engine", Required = false, Default = SocketEngineType.IOUring, HelpText = "EPoll/IOUring")]
         public SocketEngineType SocketEngine { get; set; }
 
@@ -19,16 +22,16 @@ namespace web
         public int ThreadCount { get; set; }
 
         [Option('a', "aio", Required = false, Default = true, HelpText = "Use Linux AIO")]
-        public bool UseAio { get; set; }
+        public bool? UseAio { get; set; }
 
         [Option('c', "dispatch-continuations", Required = false, Default = true, HelpText = "Dispatch Continuations")]
-        public bool DispatchContinuations { get; set; }
+        public bool? DispatchContinuations { get; set; }
 
         [Option('s', "defer-sends", Required = false, Default = false, HelpText = "Defer Sends")]
-        public bool DeferSends { get; set; }
+        public bool? DeferSends { get; set; }
 
         [Option('r', "defer-receives", Required = false, Default = false, HelpText = "Defer Receives")]
-        public bool DeferReceives { get; set; }
+        public bool? DeferReceives { get; set; }
     }
 
     public static class ConsoleLineArgumentsParser
