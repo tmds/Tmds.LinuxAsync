@@ -155,7 +155,7 @@ namespace Tmds.LinuxAsync
             private unsafe void WriteToEventFd()
             {
                 Span<byte> buffer = stackalloc byte[8];
-                Unsafe.WriteUnaligned(ref MemoryMarshal.GetReference(buffer), 1UL);
+                buffer[7] = 1;
                 int rv = IoPal.Write(_eventFd!, buffer);
                 if (rv == -1)
                 {
