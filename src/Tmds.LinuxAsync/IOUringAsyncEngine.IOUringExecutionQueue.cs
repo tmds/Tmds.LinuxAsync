@@ -232,15 +232,12 @@ namespace Tmds.LinuxAsync
                 bool waitForCompletion = !operationsRemaining && mayWait;
 
                 // io_uring_enter
-                SubmitResult result;
-                do
+                SubmitResult result = _ring!.SubmitAndWait(minComplete: waitForCompletion ? 1U : 0, out _);
+                if (result == SubmitResult.AwaitCompletions)
                 {
-                    result = _ring!.SubmitAndWait(minComplete: waitForCompletion ? 1U : 0, out _);
-                    if (result == SubmitResult.AwaitCompletions)
-                    {
-                        return false;
-                    }
-                } while (result == SubmitResult.SubmittedPartially); // TODO: detect if we're not making any more progress.
+                    return false;
+                }
+                // TODO: detect if we're not making any more progress.
 
                 _iovsUsed = 0;
                 _newOperations.RemoveRange(0, _newOperationsQueued);
