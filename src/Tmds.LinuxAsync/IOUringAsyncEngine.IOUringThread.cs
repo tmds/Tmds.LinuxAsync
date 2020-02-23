@@ -242,7 +242,7 @@ namespace Tmds.LinuxAsync
                     _iouring = new IOUringExecutionQueue();
 
                     _eventFd = new CloseSafeHandle();
-                    int rv = eventfd(0, EFD_CLOEXEC | EFD_SEMAPHORE);
+                    int rv = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
                     if (rv == -1)
                     {
                         PlatformException.Throw();
