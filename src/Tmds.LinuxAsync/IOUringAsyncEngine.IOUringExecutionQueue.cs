@@ -223,7 +223,7 @@ namespace Tmds.LinuxAsync
                 return operationsRemaining;
             }
 
-            public unsafe bool SubmitAndWait(bool mayWait)
+            public unsafe void SubmitAndWait(bool mayWait)
             {
                 bool operationsRemaining = WriteSubmissions();
 
@@ -233,16 +233,24 @@ namespace Tmds.LinuxAsync
 
                 // io_uring_enter
                 SubmitResult result = _ring!.SubmitAndWait(minComplete: waitForCompletion ? 1U : 0, out _);
-                if (result == SubmitResult.AwaitCompletions)
-                {
-                    return false;
-                }
-                // TODO: detect if we're not making any more progress.
 
-                _iovsUsed = 0;
-                _newOperations.RemoveRange(0, _newOperationsQueued);
-                _newOperationsQueued = 0;
-                return true;
+                if (result == SubmitResult.SubmittedSuccessfully) // likely case: all sqes were queued
+                {
+                    _iovsUsed = 0;
+                    _newOperations.RemoveRange(0, _newOperationsQueued);
+                    _newOperationsQueued = 0;
+                }
+                else
+                {
+                    // We were not able to submit all requests.
+
+                    // TODO: This seems similar to EAGAIN, not enough resources?
+                    // Or does it happen in other cases?
+                    // Is there a semantical difference between 0 and EAGAIN;
+                    // could submitted be less than _seqsQueued if there is an issue with
+                    // the sqe at submitted + 1?
+                    // TODO: detect if we're not making any more progress.
+                }
             }
 
             public void ExecuteCompletions()

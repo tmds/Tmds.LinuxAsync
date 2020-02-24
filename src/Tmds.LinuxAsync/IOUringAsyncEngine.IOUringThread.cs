@@ -67,11 +67,7 @@ namespace Tmds.LinuxAsync
                                 Volatile.Write(ref _blockedState, StateBlocked);
                             }
                         }
-
-                        while (!iouring.SubmitAndWait(mayWait))
-                        {
-                            iouring.ExecuteCompletions(); // TODO: consider unblocking while running completions
-                        }
+                        iouring.SubmitAndWait(mayWait);
                         Volatile.Write(ref _blockedState, StateNotBlocked);
 
                         iouring.ExecuteCompletions();
