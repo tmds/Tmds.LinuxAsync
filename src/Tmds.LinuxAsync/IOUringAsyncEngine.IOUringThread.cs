@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using static Tmds.Linux.LibC;
@@ -17,8 +18,7 @@ namespace Tmds.LinuxAsync
             private readonly Dictionary<int, IOUringAsyncContext> _asyncContexts; // TODO: make this a HashSet?
             private readonly Thread _thread;
             private IOUringExecutionQueue? _iouring;
-            private CloseSafeHandle? _pipeReadEnd; // TODO: make this an eventfd
-            private CloseSafeHandle? _pipeWriteEnd;
+            private CloseSafeHandle? _eventFd;
             private readonly byte[] _dummyReadBuffer = new byte[8];
             private bool _disposed;
             private int _blockedState;
@@ -148,14 +148,15 @@ namespace Tmds.LinuxAsync
 
                 if (blockingState == StateBlocked)
                 {
-                    WriteToPipe();
+                    WriteToEventFd();
                 }
             }
 
-            private unsafe void WriteToPipe()
+            private unsafe void WriteToEventFd()
             {
                 Span<byte> buffer = stackalloc byte[8];
-                int rv = IoPal.Write(_pipeWriteEnd!, buffer);
+                buffer[7] = 1;
+                int rv = IoPal.Write(_eventFd!, buffer);
                 if (rv == -1)
                 {
                     if (errno != EAGAIN)
@@ -207,20 +208,20 @@ namespace Tmds.LinuxAsync
                     _disposed = true;
                 }
 
-                WriteToPipe();
+                WriteToEventFd();
 
                 _thread.Join();
             }
 
-            private void AddReadFromPipe()
+            private void AddReadFromEventFd()
             {
-                _iouring!.AddRead(_pipeReadEnd!, _dummyReadBuffer,
+                _iouring!.AddRead(_eventFd!, _dummyReadBuffer,
                 (AsyncOperationResult asyncResult, object? state, int data) =>
                     {
                         // TODO: do we need to do a volatile read of _disposed?
                         if (asyncResult.Errno == EAGAIN || asyncResult.Value == 8)
                         {
-                            ((IOUringThread)state!).AddReadFromPipe();
+                            ((IOUringThread)state!).AddReadFromEventFd();
                         }
                         else if (asyncResult.IsError)
                         {
@@ -240,18 +241,15 @@ namespace Tmds.LinuxAsync
                 {
                     _iouring = new IOUringExecutionQueue();
 
-                    _pipeReadEnd = new CloseSafeHandle();
-                    _pipeWriteEnd = new CloseSafeHandle();
-                    int* pipeFds = stackalloc int[2];
-                    int rv = pipe2(pipeFds, O_CLOEXEC | O_NONBLOCK);
+                    _eventFd = new CloseSafeHandle();
+                    int rv = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
                     if (rv == -1)
                     {
                         PlatformException.Throw();
                     }
-                    _pipeReadEnd.SetHandle(pipeFds[0]);
-                    _pipeWriteEnd.SetHandle(pipeFds[1]);
+                    _eventFd.SetHandle(rv);
 
-                    AddReadFromPipe();
+                    AddReadFromEventFd();
                 }
                 catch
                 {
@@ -264,8 +262,7 @@ namespace Tmds.LinuxAsync
             private void FreeResources()
             {
                 _iouring?.Dispose();
-                _pipeReadEnd?.Dispose();
-                _pipeWriteEnd?.Dispose();
+                _eventFd?.Dispose();
             }
         }
     }
