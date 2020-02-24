@@ -49,7 +49,6 @@ namespace Tmds.LinuxAsync
             private List<Operation> _newOperations;
             private readonly Stack<Operation> _operationPool;
             private int _newOperationsQueued; // Number of operations added to submission queue, not yet submitted.
-            private uint _sqesQueued; // Number of free entries in the submission queue.
             private int _iovsUsed;
             private int _iovsLength;
             private bool _disposed;
@@ -159,7 +158,7 @@ namespace Tmds.LinuxAsync
             {
                 Ring ring = _ring!;
                 int iovIndex = _iovsUsed;
-                int sqesAvailable = ring.SubmissionQueueSize - (int)_sqesQueued;
+                int sqesAvailable = ring.SubmissionEntriesAvailable;
                 iovec* iovs = IoVectorTable;
                 for (int i = 0; (i < _newOperations.Count) && (sqesAvailable > 2) && (iovIndex < _iovsLength); i++)
                 {
@@ -219,7 +218,6 @@ namespace Tmds.LinuxAsync
                     }
                 }
                 _iovsUsed = iovIndex;
-                _sqesQueued = (uint)(ring.SubmissionQueueSize - sqesAvailable);
 
                 bool operationsRemaining = (_newOperations.Count - _newOperationsQueued) > 0;
                 return operationsRemaining;
@@ -227,40 +225,32 @@ namespace Tmds.LinuxAsync
 
             public unsafe void SubmitAndWait(bool mayWait)
             {
-                try
+                bool operationsRemaining = WriteSubmissions();
+
+                // We can't wait if there are more submissions to be sent,
+                // or the event loop wants to do something.
+                bool waitForCompletion = !operationsRemaining && mayWait;
+
+                // io_uring_enter
+                SubmitResult result = _ring!.SubmitAndWait(minComplete: waitForCompletion ? 1U : 0, out _);
+
+                if (result == SubmitResult.SubmittedSuccessfully) // likely case: all sqes were queued
                 {
-                    bool operationsRemaining = WriteSubmissions();
-
-                    // We can't wait if there are more submissions to be sent,
-                    // or the event loop wants to do something.
-                    bool waitForCompletion = !operationsRemaining && mayWait;
-
-                    // io_uring_enter
-                    _ring!.Submit();
-                    uint submitted = _ring!.Flush((uint)_sqesQueued, minComplete: waitForCompletion ? 1U : 0);
-                    _sqesQueued -= submitted;
-
-                    if (_sqesQueued == 0) // likely case: all sqes were queued
-                    {
-                        _iovsUsed = 0;
-                        _newOperations.RemoveRange(0, _newOperationsQueued);
-                        _newOperationsQueued = 0;
-                    }
-                    else
-                    {
-                        // We were not able to submit all requests.
-
-                        // TODO: This seems similar to EAGAIN, not enough resources?
-                        // Or does it happen in other cases?
-                        // Is there a semantical difference between 0 and EAGAIN;
-                        // could submitted be less than _seqsQueued if there is an issue with
-                        // the sqe at submitted + 1?
-                        // TODO: detect if we're not making any more progress.
-                    }
+                    _iovsUsed = 0;
+                    _newOperations.RemoveRange(0, _newOperationsQueued);
+                    _newOperationsQueued = 0;
                 }
-                catch (ErrnoException ex) when (ex.Errno == EBUSY || // The application needs to read completions.
-                                                ex.Errno == EAGAIN)  // The kernel doesn't have enough resources.
-                { }
+                else
+                {
+                    // We were not able to submit all requests.
+
+                    // TODO: This seems similar to EAGAIN, not enough resources?
+                    // Or does it happen in other cases?
+                    // Is there a semantical difference between 0 and EAGAIN;
+                    // could submitted be less than _seqsQueued if there is an issue with
+                    // the sqe at submitted + 1?
+                    // TODO: detect if we're not making any more progress.
+                }
             }
 
             public void ExecuteCompletions()
