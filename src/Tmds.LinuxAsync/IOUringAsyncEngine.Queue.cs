@@ -111,6 +111,8 @@ namespace Tmds.LinuxAsync
             {
                 bool executed = false;
 
+                // TODO: handle _thread.IsCurrentThread
+
                 // Try executing without a lock.
                 if (preferSync && Volatile.Read(ref _tail) == null)
                 {
