@@ -28,6 +28,8 @@ namespace Tmds.LinuxAsync
 
             internal AsyncExecutionQueue? ExecutionQueue => _asyncExecutionQueue;
 
+            public bool IsCurrentThread => object.ReferenceEquals(_thread, Thread.CurrentThread);
+
             struct ScheduledAction
             {
                 public object? State;
@@ -110,7 +112,7 @@ namespace Tmds.LinuxAsync
 
                         bool actionsRemaining = false;
 
-                        // Run this twice, operations can lead to new actions.
+                        // Run this twice, executions cause more executions.
                         for (int i = 0; i < 2; i++)
                         {
                             // First execute scheduled actions, they can add to the exection queue.

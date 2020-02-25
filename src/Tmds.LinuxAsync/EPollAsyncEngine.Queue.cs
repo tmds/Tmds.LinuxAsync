@@ -65,17 +65,8 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            bool isCancellationRequested = op.IsCancellationRequested;
+                            AsyncExecutionResult result = TryExecuteOperation(op, asyncResult, triggeredByPoll, op.IsCancellationRequested);
 
-                            AsyncExecutionResult result = op.TryExecute(triggeredByPoll, isCancellationRequested, _thread.ExecutionQueue,
-                                    (AsyncOperationResult aResult, object? state, int data)
-                                        => ((Queue)state!).ExecuteQueued(triggeredByPoll: false, aResult)
-                                    , state: this, data: 0, asyncResult);
-
-                            if (isCancellationRequested)
-                            {
-                                Debug.Assert(result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled);
-                            }
                             // Operation finished, set CompletionFlags.
                             if (result == AsyncExecutionResult.Finished)
                             {
@@ -86,8 +77,6 @@ namespace Tmds.LinuxAsync
                                 Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
                                 result = AsyncExecutionResult.Finished;
                             }
-
-                            op.IsExecuting = result == AsyncExecutionResult.Executing;
 
                             if (result == AsyncExecutionResult.Finished)
                             {
@@ -108,21 +97,38 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public bool ExecuteAsync(AsyncOperation operation, bool preferSync)
+            private AsyncExecutionResult TryExecuteOperation(AsyncOperation op, AsyncOperationResult asyncResult, bool triggeredByPoll = false, bool isCancellationRequested = false)
             {
-                bool executed = false;
-                int? eventCounterSnapshot = null;
+                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, isCancellationRequested, _thread.ExecutionQueue,
+                                                    (AsyncOperationResult aResult, object? state, int data)
+                                                        => ((Queue)state!).ExecuteQueued(triggeredByPoll: false, aResult)
+                                                    , state: this, data: 0, asyncResult);
 
-                // Try executing without a lock.
-                if (preferSync && Volatile.Read(ref _tail) == null)
+                if (isCancellationRequested)
                 {
-                    eventCounterSnapshot = Volatile.Read(ref _eventCounter);
-                    executed = operation.TryExecuteSync();
+                    Debug.Assert(result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled);
                 }
 
-                if (!executed)
+                op.IsExecuting = result == AsyncExecutionResult.Executing;
+                return result;
+            }
+
+            public bool ExecuteAsync(AsyncOperation operation, bool preferSync)
+            {
+                bool finished = false;
+                int? eventCounterSnapshot = null;
+                bool isRunningOnPollThread = _thread.IsCurrentThread;
+
+                // Try executing without a lock.
+                if (!isRunningOnPollThread && preferSync && Volatile.Read(ref _tail) == null)
                 {
-                    bool postCheck = false;
+                    eventCounterSnapshot = Volatile.Read(ref _eventCounter);
+                    finished = operation.TryExecuteSync();
+                }
+
+                if (!finished)
+                {
+                    bool postToPollThread = false;
                     lock (Gate)
                     {
                         if (_tail == AsyncOperation.DisposedSentinel)
@@ -131,32 +137,45 @@ namespace Tmds.LinuxAsync
                         }
 
                         bool isQueueEmpty = _tail == null;
-
-                        // Execute under lock.
-                        if (isQueueEmpty && preferSync && _eventCounter != eventCounterSnapshot)
+                        if (isQueueEmpty)
                         {
-                            executed = operation.TryExecuteSync();
+                            if (isRunningOnPollThread)
+                            {
+                                AsyncExecutionResult result = TryExecuteOperation(operation, AsyncOperationResult.NoResult);
+                                finished = result == AsyncExecutionResult.Finished;
+                            }
+                            else if (preferSync)
+                            {
+                                // execute again if an event occurred, to ensure we didn't lose the event.
+                                if (_eventCounter != eventCounterSnapshot)
+                                {
+                                    finished = operation.TryExecuteSync();
+                                }
+                            }
+                            else
+                            {
+                                postToPollThread = true;
+                            }
                         }
 
-                        if (!executed)
+                        if (!finished)
                         {
                             QueueAdd(ref _tail, operation);
-                            postCheck = isQueueEmpty && !preferSync;
                         }
                     }
-                    if (postCheck)
+                    if (postToPollThread)
                     {
                         _thread.Post((object? s) => ((Queue)s!).ExecuteQueued(triggeredByPoll: false, AsyncOperationResult.NoResult), this);
                     }
                 }
 
-                if (executed)
+                if (finished)
                 {
                     operation.CompletionFlags = OperationCompletionFlags.CompletedFinishedSync;
                     operation.Complete();
                 }
 
-                return !executed;
+                return !finished;
             }
 
             public void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
