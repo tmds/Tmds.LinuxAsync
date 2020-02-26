@@ -36,6 +36,9 @@ namespace web
                             options.DispatchContinuations = commandLineOptions.DispatchContinuations.Value;
                             options.DeferSends = commandLineOptions.DeferSends.Value;
                             options.DeferReceives = commandLineOptions.DeferReceives.Value;
+                            options.DontAllocateMemoryForIdleConnections = commandLineOptions.DontAllocateMemoryForIdleConnections.Value;
+                            options.CoalesceWrites = commandLineOptions.CoalesceWrites.Value;
+                            options.ApplicationCodeIsNonBlocking = commandLineOptions.ApplicationCodeIsNonBlocking.Value;
                         }
                     );
                 });

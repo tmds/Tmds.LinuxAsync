@@ -52,5 +52,15 @@ class SocketTransportOptions
   public bool DispatchContinuations { get; set; } = true; // Sets RunContinuationsAsynchronously
   public bool DeferSends { get; set; } = false;           // Sets !PreferSynchronousCompletion for sends
   public bool DeferReceives { get; set; } = false;        // Sets !PreferSynchronousCompletion for receives
+  public bool CoalesceWrites { get; set; } = true;
+  public bool ApplicationCodeIsNonBlocking { get; set; } = false;
+  public bool DontAllocateMemoryForIdleConnections { get; set; } = true;
 }
 ```
+
+Setting `CoalesceWrites` to `true` defers write operations to an `IOQueue`. If more data is written to the `Pipe` before the operation is executed on the `IOQueue`, it will be part of a single write operation.
+
+Setting `ApplicationCodeIsNonBlocking` to `true` causes reads from ASP.NET Core to not get deferred to the `ThreadPool`.
+**Note** something in ASP.NET Core still defers the HTTP Handler to run on the `ThreadPool`.
+
+Setting `DontAllocateMemoryForIdleConnections` to `false` will allocate a buffer for every connection up-front. For idle connections, this is a waste of memory. Setting this to `true` eliminates a syscall to wait for data to be available.

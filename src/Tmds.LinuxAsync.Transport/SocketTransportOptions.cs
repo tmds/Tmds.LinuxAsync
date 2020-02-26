@@ -24,6 +24,12 @@ namespace Tmds.LinuxAsync.Transport
         /// </remarks>
         public bool NoDelay { get; set; } = true;
 
+        public bool CoalesceWrites { get; set; } = true;
+
+        public bool ApplicationCodeIsNonBlocking { get; set; } = false;
+
+        public bool DontAllocateMemoryForIdleConnections { get; set; } = true;
+
         /// <summary>
         /// The maximum length of the pending connection queue.
         /// </summary>
