@@ -33,6 +33,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
         private Task _processingTask;
         private readonly TaskCompletionSource<object> _waitForConnectionClosedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _connectionClosed;
+        private bool _waitForReceiveReady;
 
         internal SocketConnection(Socket socket,
                                   MemoryPool<byte> memoryPool,
@@ -42,7 +43,10 @@ namespace Tmds.LinuxAsync.Transport.Internal
                                   long? maxWriteBufferSize = null,
                                   bool deferSends = true,
                                   bool deferReceives = true,
-                                  bool dispatchContinuations = true)
+                                  bool dispatchContinuations = true,
+                                  bool coalesceWrites = true,
+                                  bool applicationCodeIsNonBlocking = false,
+                                  bool dontAllocateMemoryForIdleConnections = true)
         {
             Debug.Assert(socket != null);
             Debug.Assert(memoryPool != null);
@@ -51,6 +55,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
             _socket = socket;
             MemoryPool = memoryPool;
             _trace = trace;
+            _waitForReceiveReady = dontAllocateMemoryForIdleConnections;
 
             LocalEndPoint = _socket.LocalEndPoint;
             RemoteEndPoint = _socket.RemoteEndPoint;
@@ -68,9 +73,9 @@ namespace Tmds.LinuxAsync.Transport.Internal
             maxReadBufferSize ??= 0;
             maxWriteBufferSize ??= 0;
 
-            // TODO: inline some of these?
-            var inputOptions = new PipeOptions(MemoryPool, PipeScheduler.ThreadPool, scheduler, maxReadBufferSize.Value, maxReadBufferSize.Value / 2, useSynchronizationContext: false);
-            var outputOptions = new PipeOptions(MemoryPool, scheduler, PipeScheduler.ThreadPool, maxWriteBufferSize.Value, maxWriteBufferSize.Value / 2, useSynchronizationContext: false);
+            var appScheduler = applicationCodeIsNonBlocking ? PipeScheduler.Inline : PipeScheduler.ThreadPool;
+            var inputOptions = new PipeOptions(MemoryPool, appScheduler, scheduler, maxReadBufferSize.Value, maxReadBufferSize.Value / 2, useSynchronizationContext: false);
+            var outputOptions = new PipeOptions(MemoryPool, coalesceWrites ? scheduler : PipeScheduler.Inline, appScheduler, maxWriteBufferSize.Value, maxWriteBufferSize.Value / 2, useSynchronizationContext: false);
 
             var pair = DuplexPipe.CreateConnectionPair(inputOptions, outputOptions);
 
@@ -190,8 +195,11 @@ namespace Tmds.LinuxAsync.Transport.Internal
             var input = Input;
             while (true)
             {
-                // Wait for data before allocating a buffer.
-                await _receiver.WaitForDataAsync();
+                if (_waitForReceiveReady)
+                {
+                    // Wait for data before allocating a buffer.
+                    await _receiver.WaitForDataAsync();
+                }
 
                 // Ensure we have some reasonable amount of buffer space
                 var buffer = input.GetMemory(MinAllocBufferSize);

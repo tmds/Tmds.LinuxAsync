@@ -34,6 +34,15 @@ namespace web
 
         [Option('r', "defer-receives", Required = false, Default = false, HelpText = "Defer Receives")]
         public bool? DeferReceives { get; set; }
+
+        [Option('w', "wait-for-ready", Required = false, Default = true, HelpText = "Don't allocate memory for idle connections")]
+        public bool? DontAllocateMemoryForIdleConnections { get; set; }
+
+        [Option('p', "coalesce-writes", Required = false, Default = true, HelpText = "Coalesce pipe writes")]
+        public bool? CoalesceWrites { get; set; }
+
+        [Option('i', "inline-app", Required = false, Default = false, HelpText = "Application code is non blocking")]
+        public bool? ApplicationCodeIsNonBlocking { get; set; }
     }
 
     public static class ConsoleLineArgumentsParser
