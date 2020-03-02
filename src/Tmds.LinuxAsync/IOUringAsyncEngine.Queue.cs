@@ -65,17 +65,8 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            bool isCancellationRequested = op.IsCancellationRequested;
+                            AsyncExecutionResult result = TryExecuteOperation(op, asyncResult, op.IsCancellationRequested);
 
-                            AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, isCancellationRequested, _thread.ExecutionQueue,
-                                (AsyncOperationResult aResult, object? state, int data)
-                                    => ((Queue)state!).ExecuteQueued(aResult)
-                            , state: this, DataForOperation(op), asyncResult);
-
-                            if (isCancellationRequested)
-                            {
-                                Debug.Assert(result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled);
-                            }
                             // Operation finished, set CompletionFlags.
                             if (result == AsyncExecutionResult.Finished)
                             {
@@ -86,7 +77,6 @@ namespace Tmds.LinuxAsync
                                 Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
                                 result = AsyncExecutionResult.Finished;
                             }
-                            op.IsExecuting = result == AsyncExecutionResult.Executing;
 
                             if (result == AsyncExecutionResult.Finished)
                             {
@@ -107,21 +97,37 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public bool ExecuteAsync(AsyncOperation operation, bool preferSync)
+            private AsyncExecutionResult TryExecuteOperation(AsyncOperation op, AsyncOperationResult asyncResult, bool isCancellationRequested = false)
             {
-                bool executed = false;
+                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, isCancellationRequested, _thread.ExecutionQueue,
+                                                    (AsyncOperationResult aResult, object? state, int data)
+                                                        => ((Queue)state!).ExecuteQueued(aResult)
+                                                    , state: this, data: DataForOperation(op), asyncResult);
 
-                // TODO: handle _thread.IsCurrentThread
-
-                // Try executing without a lock.
-                if (preferSync && Volatile.Read(ref _tail) == null)
+                if (isCancellationRequested)
                 {
-                    executed = operation.TryExecuteSync();
+                    Debug.Assert(result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled);
                 }
 
-                if (!executed)
+                op.IsExecuting = result == AsyncExecutionResult.Executing;
+                return result;
+            }
+
+            public bool ExecuteAsync(AsyncOperation operation, bool preferSync)
+            {
+                bool finished = false;
+                bool batchOnIOUringThread = _thread.BatchOnIOUringThread // Avoid overhead of _thread.IsCurrentThread
+                    && _thread.IsCurrentThread;
+
+                // Try executing without a lock.
+                if (!batchOnIOUringThread && preferSync && Volatile.Read(ref _tail) == null)
                 {
-                    bool postCheck = false;
+                    finished = operation.TryExecuteSync();
+                }
+
+                if (!finished)
+                {
+                    bool postToIOUringThread = false;
                     lock (Gate)
                     {
                         if (_tail == AsyncOperation.DisposedSentinel)
@@ -129,23 +135,39 @@ namespace Tmds.LinuxAsync
                             ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
                         }
 
-                        postCheck = _tail == null;
-                        QueueAdd(ref _tail, operation);
+                        bool isQueueEmpty = _tail == null;
+                        if (isQueueEmpty)
+                        {
+                            if (batchOnIOUringThread)
+                            {
+                                AsyncExecutionResult result = TryExecuteOperation(operation, AsyncOperationResult.NoResult);
+                                finished = result == AsyncExecutionResult.Finished;
+                            }
+                            else
+                            {
+                                postToIOUringThread = true;
+                            }
+                        }
+
+                        if (!finished)
+                        {
+                            QueueAdd(ref _tail, operation);
+                        }
                     }
-                    if (postCheck)
+                    if (postToIOUringThread)
                     {
                         // TODO: an alternative could be to add the operation to the executionqueue here directly.
                         _thread.Post((object? s) => ((Queue)s!).ExecuteQueued(AsyncOperationResult.NoResult), this);
                     }
                 }
 
-                if (executed)
+                if (finished)
                 {
                     operation.CompletionFlags = OperationCompletionFlags.CompletedFinishedSync;
                     operation.Complete();
                 }
 
-                return !executed;
+                return !finished;
             }
 
             public void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)

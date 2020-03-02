@@ -25,6 +25,10 @@ namespace Tmds.LinuxAsync
 
             internal AsyncExecutionQueue ExecutionQueue => _iouring!;
 
+            public bool BatchOnIOUringThread { get; }
+
+            public bool IsCurrentThread => object.ReferenceEquals(_thread, Thread.CurrentThread);
+
             struct ScheduledAction
             {
                 public object? State;
@@ -35,8 +39,9 @@ namespace Tmds.LinuxAsync
             private List<ScheduledAction> _scheduledActions;
             private List<ScheduledAction> _executingActions;
 
-            public IOUringThread()
+            public IOUringThread(bool batchOnIOUringThread)
             {
+                BatchOnIOUringThread = batchOnIOUringThread;
                 _asyncContexts = new Dictionary<int, IOUringAsyncContext>();
 
                 CreateResources();

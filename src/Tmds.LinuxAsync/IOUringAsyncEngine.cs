@@ -9,12 +9,12 @@ namespace Tmds.LinuxAsync
         private readonly IOUringThread[] _threads;
         private int _previousThreadIdx = -1;
 
-        public IOUringAsyncEngine(int threadCount)
+        public IOUringAsyncEngine(int threadCount, bool batchOnIOUringThread)
         {
             _threads = new IOUringThread[threadCount];
             for (int i = 0; i < _threads.Length; i++)
             {
-                _threads[i] = new IOUringThread();
+                _threads[i] = new IOUringThread(batchOnIOUringThread);
             }
         }
 
