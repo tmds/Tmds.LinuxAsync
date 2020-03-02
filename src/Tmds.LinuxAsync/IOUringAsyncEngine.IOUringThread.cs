@@ -224,7 +224,7 @@ namespace Tmds.LinuxAsync
                 (AsyncOperationResult asyncResult, object? state, int data) =>
                     {
                         // TODO: do we need to do a volatile read of _disposed?
-                        if (asyncResult.Errno == EAGAIN || asyncResult.Value == 8)
+                        if (asyncResult.Errno == EAGAIN || (!asyncResult.IsError && asyncResult.Value == 8))
                         {
                             ((IOUringThread)state!).AddReadFromEventFd();
                         }
