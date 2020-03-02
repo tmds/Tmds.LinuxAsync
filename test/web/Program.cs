@@ -49,7 +49,9 @@ namespace web
             switch (commandLineOptions.SocketEngine)
             {
                 case SocketEngineType.EPoll:
-                    return new EPollAsyncEngine(threadCount: commandLineOptions.ThreadCount, useLinuxAio: commandLineOptions.UseAio.Value);
+                    return new EPollAsyncEngine(threadCount: commandLineOptions.ThreadCount,
+                        useLinuxAio: commandLineOptions.UseAio.Value,
+                        batchOnPollThread: !commandLineOptions.DispatchContinuations.Value);
                 case SocketEngineType.IOUring:
                     return new IOUringAsyncEngine(threadCount: commandLineOptions.ThreadCount);
                 default:

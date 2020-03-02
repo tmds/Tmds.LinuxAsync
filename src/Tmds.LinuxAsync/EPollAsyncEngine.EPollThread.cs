@@ -27,6 +27,7 @@ namespace Tmds.LinuxAsync
             private int _blockedState;
 
             internal AsyncExecutionQueue? ExecutionQueue => _asyncExecutionQueue;
+            public bool BatchOnPollThread { get; }
 
             public bool IsCurrentThread => object.ReferenceEquals(_thread, Thread.CurrentThread);
 
@@ -40,9 +41,10 @@ namespace Tmds.LinuxAsync
             private List<ScheduledAction> _scheduledActions;
             private List<ScheduledAction> _executingActions;
 
-            public EPollThread(bool useLinuxAio)
+            public EPollThread(bool useLinuxAio, bool batchOnPollThread)
             {
                 _asyncContexts = new Dictionary<int, EPollAsyncContext>();
+                BatchOnPollThread = batchOnPollThread;
 
                 CreateResources(useLinuxAio);
 

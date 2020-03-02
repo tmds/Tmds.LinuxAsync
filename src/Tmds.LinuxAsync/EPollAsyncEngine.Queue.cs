@@ -117,10 +117,11 @@ namespace Tmds.LinuxAsync
             {
                 bool finished = false;
                 int? eventCounterSnapshot = null;
-                bool isRunningOnPollThread = _thread.IsCurrentThread;
+                bool batchOnPollThread = _thread.BatchOnPollThread // Avoid overhead of _thread.IsCurrentThread
+                    && _thread.IsCurrentThread;
 
                 // Try executing without a lock.
-                if (!isRunningOnPollThread && preferSync && Volatile.Read(ref _tail) == null)
+                if (!batchOnPollThread && preferSync && Volatile.Read(ref _tail) == null)
                 {
                     eventCounterSnapshot = Volatile.Read(ref _eventCounter);
                     finished = operation.TryExecuteSync();
@@ -139,7 +140,7 @@ namespace Tmds.LinuxAsync
                         bool isQueueEmpty = _tail == null;
                         if (isQueueEmpty)
                         {
-                            if (isRunningOnPollThread)
+                            if (batchOnPollThread)
                             {
                                 AsyncExecutionResult result = TryExecuteOperation(operation, AsyncOperationResult.NoResult);
                                 finished = result == AsyncExecutionResult.Finished;
