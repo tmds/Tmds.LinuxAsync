@@ -53,7 +53,7 @@ namespace web
                         useLinuxAio: commandLineOptions.UseAio.Value,
                         batchOnPollThread: !commandLineOptions.DispatchContinuations.Value);
                 case SocketEngineType.IOUring:
-                    return new IOUringAsyncEngine(threadCount: 1,
+                    return new IOUringAsyncEngine(threadCount: commandLineOptions.ThreadCount,
                         batchOnIOUringThread: !commandLineOptions.DispatchContinuations.Value);
                 default:
                     throw new NotSupportedException($"{commandLineOptions.SocketEngine} is not supported");
