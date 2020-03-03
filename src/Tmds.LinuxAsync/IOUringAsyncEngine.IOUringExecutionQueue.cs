@@ -314,18 +314,37 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            private unsafe void* Align(IntPtr p)
+            private unsafe byte* Align(IntPtr p)
             {
                 ulong pointer = (ulong)p;
                 pointer += MemoryAlignment - 1;
                 pointer &= ~(ulong)(MemoryAlignment - 1);
-                return (void*)pointer;
+                return (byte*)pointer;
             }
 
             private unsafe IntPtr AllocMemory(int length)
             {
-                IntPtr res = Marshal.AllocHGlobal(length + MemoryAlignment - 1);
-                Span<byte> span = new Span<byte>(Align(res), length);
+                int allocatedLength = length + MemoryAlignment - 1;
+                IntPtr res = Marshal.AllocHGlobal(allocatedLength);
+                if (res == IntPtr.Zero)
+                {
+                    ThrowHelper.ThrowIndexOutOfRange(res);
+                }
+                byte* alignedStart = Align(res);
+                {
+                    byte* start = (byte*)res.ToPointer();
+                    byte* end = start + allocatedLength;
+                    if (alignedStart < start || alignedStart >= end)
+                    {
+                        ThrowHelper.ThrowIndexOutOfRange(res);
+                    }
+                    byte* alignedEnd = alignedStart + length;
+                    if (alignedEnd > end)
+                    {
+                        ThrowHelper.ThrowIndexOutOfRange(length);
+                    }
+                }
+                Span<byte> span = new Span<byte>(alignedStart, length);
                 span.Clear();
                 return res;
             }
