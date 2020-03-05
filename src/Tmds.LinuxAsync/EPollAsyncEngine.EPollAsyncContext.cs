@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using static Tmds.Linux.LibC;
 
@@ -111,6 +112,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public void HandleEvents(int events)
             {
                 if ((events & EPOLLERR) != 0)
