@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using IoUring;
+using IoUring.Concurrent;
 using Tmds.Linux;
 using static Tmds.Linux.LibC;
 
@@ -18,7 +19,7 @@ namespace Tmds.LinuxAsync
             private const int MemoryAlignment = 8;
             private const int SubmissionQueueRequestedLength = 512; // TODO
             // private const int CompletionQueueLength = CompletionQueueLength; // TODO
-            Ring? _ring;
+            ConcurrentRing? _ring;
 
             enum OperationType
             {
@@ -63,7 +64,7 @@ namespace Tmds.LinuxAsync
                 _newOperations = new List<Operation>();
                 try
                 {
-                    _ring = new Ring(SubmissionQueueRequestedLength);
+                    _ring = new ConcurrentRing(SubmissionQueueRequestedLength);
                     if (!_ring.SupportsNoDrop)
                     {
                         throw new NotSupportedException("io_uring IORING_FEAT_NODROP is needed.");
@@ -156,10 +157,11 @@ namespace Tmds.LinuxAsync
 
             private unsafe bool WriteSubmissions()
             {
-                Ring ring = _ring!;
+                ConcurrentRing ring = _ring!;
                 int iovIndex = _iovsUsed;
                 int sqesAvailable = ring.SubmissionEntriesAvailable;
                 iovec* iovs = IoVectorTable;
+                Span<Submission> submissions = stackalloc Submission[2];
                 for (int i = 0; (i < _newOperations.Count) && (sqesAvailable > 2) && (iovIndex < _iovsLength); i++)
                 {
                     _newOperationsQueued++;
@@ -177,8 +179,11 @@ namespace Tmds.LinuxAsync
                                 *iov = new iovec { iov_base = handle.Pointer, iov_len = op.Memory.Length };
                                 sqesAvailable -= 2;
                                 // Poll first, in case the fd is non-blocking.
-                                ring.PreparePollAdd(fd, (ushort)POLLIN, key | MaskBit, options: SubmissionOption.Link);
-                                ring.PrepareReadV(fd, iov, 1, userData: key);
+                                ring.TryAcquireSubmissions(submissions);
+                                submissions[0].PreparePollAdd(fd, (ushort)POLLIN, key | MaskBit, options: SubmissionOption.Link);
+                                ring.Release(submissions[0]);
+                                submissions[1].PrepareReadV(fd, iov, 1, userData: key);
+                                ring.Release(submissions[1]);
                                 break;
                             }
                         case OperationType.Write:
@@ -189,28 +194,38 @@ namespace Tmds.LinuxAsync
                                 *iov = new iovec { iov_base = handle.Pointer, iov_len = op.Memory.Length };
                                 sqesAvailable -= 2;
                                 // Poll first, in case the fd is non-blocking.
-                                ring.PreparePollAdd(fd, (ushort)POLLOUT, key | MaskBit, options: SubmissionOption.Link);
-                                ring.PrepareWriteV(fd, iov, 1, userData: key);
+                                ring.TryAcquireSubmissions(submissions);
+                                submissions[0].PreparePollAdd(fd, (ushort)POLLOUT, key | MaskBit, options: SubmissionOption.Link);
+                                ring.Release(submissions[0]);
+                                submissions[1].PrepareWriteV(fd, iov, 1, userData: key);
+                                ring.Release(submissions[1]);
                                 break;
                             }
                         case OperationType.PollIn:
                             {
                                 sqesAvailable -= 1;
-                                ring.PreparePollAdd(fd, (ushort)POLLIN, key);
+                                ring.TryAcquireSubmission(out var submission);
+                                submission.PreparePollAdd(fd, (ushort)POLLIN, key);
+                                ring.Release(submission);
                                 break;
                             }
                         case OperationType.PollOut:
                             {
                                 sqesAvailable -= 1;
-                                ring.PreparePollAdd(fd, (ushort)POLLOUT, key);
+                                ring.TryAcquireSubmission(out var submission);
+                                submission.PreparePollAdd(fd, (ushort)POLLOUT, key);
+                                ring.Release(submission);
                                 break;
                             }
                         case OperationType.Cancel:
                             {
                                 sqesAvailable -= 2;
                                 // Cancel the operation and possibly associated poll operation.
-                                ring.PrepareCancel(opUserData: key | MaskBit, userData: IgnoredData);
-                                ring.PrepareCancel(opUserData: key,           userData: IgnoredData);
+                                ring.TryAcquireSubmissions(submissions);
+                                submissions[0].PrepareCancel(opUserData: key | MaskBit, userData: IgnoredData);
+                                ring.Release(submissions[0]);
+                                submissions[1].PrepareCancel(opUserData: key,           userData: IgnoredData);
+                                ring.Release(submissions[1]);
                                 // Cancel operations aren't added to the dictionary, we can return it now.
                                 ReturnOperation(op);
                                 break;
@@ -232,7 +247,7 @@ namespace Tmds.LinuxAsync
                 bool waitForCompletion = !operationsRemaining && mayWait;
 
                 // io_uring_enter
-                SubmitResult result = _ring!.SubmitAndWait(minComplete: waitForCompletion ? 1U : 0, out _);
+                var result = _ring!.SubmitAndWait(minComplete: waitForCompletion ? 1U : 0, out _);
 
                 if (result == SubmitResult.SubmittedSuccessfully) // likely case: all sqes were queued
                 {
