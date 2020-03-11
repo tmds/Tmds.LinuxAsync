@@ -160,6 +160,8 @@ namespace Tmds.LinuxAsync
                                 {
                                     AsyncExecutionResult result = TryExecuteOperation(asyncOnly: true, operation, AsyncOperationResult.NoResult);
                                     finished = result == AsyncExecutionResult.Finished;
+                                    // If we couldn't queue the operation (Executing), we need to post.
+                                    postToIOThread = result == AsyncExecutionResult.WaitForPoll;
                                 }
                                 else
                                 {
