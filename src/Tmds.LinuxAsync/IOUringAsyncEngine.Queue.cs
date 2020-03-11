@@ -65,7 +65,7 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            AsyncExecutionResult result = TryExecuteOperation(onIOThread: true, asyncOnly: false, op, asyncResult, op.IsCancellationRequested);
+                            AsyncExecutionResult result = TryExecuteOperation(asyncOnly: false, op, asyncResult, op.IsCancellationRequested);
 
                             // Operation finished, set CompletionFlags.
                             if (result == AsyncExecutionResult.Finished)
@@ -97,14 +97,9 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            private AsyncExecutionResult TryExecuteOperation(bool onIOThread, bool asyncOnly, AsyncOperation op, AsyncOperationResult asyncResult, bool isCancellationRequested = false)
+            private AsyncExecutionResult TryExecuteOperation(bool asyncOnly, AsyncOperation op, AsyncOperationResult asyncResult, bool isCancellationRequested = false)
             {
-                AsyncExecutionQueue? executionQueue = _thread.ExecutionQueue;
-                if (!onIOThread && executionQueue!= null && !executionQueue.IsThreadSafe)
-                {
-                    executionQueue = null;
-                }
-                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, isCancellationRequested, asyncOnly, executionQueue,
+                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, isCancellationRequested, asyncOnly, _thread.ExecutionQueue,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).ExecuteQueued(aResult)
                                                     , state: this, data: DataForOperation(op), asyncResult);
@@ -145,7 +140,7 @@ namespace Tmds.LinuxAsync
                         {
                             if (batchOnIOUringThread)
                             {
-                                AsyncExecutionResult result = TryExecuteOperation(onIOThread: true, asyncOnly: false, operation, AsyncOperationResult.NoResult);
+                                AsyncExecutionResult result = TryExecuteOperation(asyncOnly: false, operation, AsyncOperationResult.NoResult);
                                 finished = result == AsyncExecutionResult.Finished;
                             }
                             else
@@ -153,7 +148,7 @@ namespace Tmds.LinuxAsync
                                 AsyncExecutionQueue? executionQueue = _thread.ExecutionQueue;
                                 if (executionQueue?.IsThreadSafe == true)
                                 {
-                                    AsyncExecutionResult result = TryExecuteOperation(onIOThread: false, asyncOnly: true, operation, AsyncOperationResult.NoResult);
+                                    AsyncExecutionResult result = TryExecuteOperation(asyncOnly: true, operation, AsyncOperationResult.NoResult);
                                     finished = result == AsyncExecutionResult.Finished;
                                 }
                                 else
