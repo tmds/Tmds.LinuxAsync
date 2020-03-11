@@ -44,9 +44,9 @@ namespace Tmds.LinuxAsync.Transport.Internal
                                   bool deferSends = true,
                                   bool deferReceives = true,
                                   bool dispatchContinuations = true,
-                                  bool coalesceWrites = true,
                                   bool applicationCodeIsNonBlocking = false,
-                                  bool dontAllocateMemoryForIdleConnections = true)
+                                  bool dontAllocateMemoryForIdleConnections = true,
+                                  OutputWriterScheduler outputWriterScheduler = OutputWriterScheduler.IOQueue)
         {
             Debug.Assert(socket != null);
             Debug.Assert(memoryPool != null);
@@ -73,9 +73,17 @@ namespace Tmds.LinuxAsync.Transport.Internal
             maxReadBufferSize ??= 0;
             maxWriteBufferSize ??= 0;
 
+            PipeScheduler outputScheduler = outputWriterScheduler switch
+            {
+                OutputWriterScheduler.Inline => PipeScheduler.Inline,
+                OutputWriterScheduler.IOQueue => scheduler,
+                OutputWriterScheduler.IOThread => _socket.IOThreadScheduler,
+                _ => throw new IndexOutOfRangeException()
+            };
+
             var appScheduler = applicationCodeIsNonBlocking ? PipeScheduler.Inline : PipeScheduler.ThreadPool;
             var inputOptions = new PipeOptions(MemoryPool, appScheduler, scheduler, maxReadBufferSize.Value, maxReadBufferSize.Value / 2, useSynchronizationContext: false);
-            var outputOptions = new PipeOptions(MemoryPool, coalesceWrites ? scheduler : PipeScheduler.Inline, appScheduler, maxWriteBufferSize.Value, maxWriteBufferSize.Value / 2, useSynchronizationContext: false);
+            var outputOptions = new PipeOptions(MemoryPool, outputScheduler, appScheduler, maxWriteBufferSize.Value, maxWriteBufferSize.Value / 2, useSynchronizationContext: false);
 
             var pair = DuplexPipe.CreateConnectionPair(inputOptions, outputOptions);
 

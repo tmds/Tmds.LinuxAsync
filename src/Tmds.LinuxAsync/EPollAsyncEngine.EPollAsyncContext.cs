@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO.Pipelines;
 using System.Runtime.InteropServices;
 using static Tmds.Linux.LibC;
 
@@ -17,6 +18,8 @@ namespace Tmds.LinuxAsync
             private bool _setToNonBlocking;
 
             public int Key => _fd;
+
+            public override PipeScheduler? IOThreadScheduler => _epoll;
 
             public EPollAsyncContext(EPollThread thread, SafeHandle handle)
             {

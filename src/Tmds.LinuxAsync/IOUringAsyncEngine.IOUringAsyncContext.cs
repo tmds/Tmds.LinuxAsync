@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Pipelines;
 using System.Runtime.InteropServices;
 using System.Threading;
 using static Tmds.Linux.LibC;
@@ -21,6 +22,8 @@ namespace Tmds.LinuxAsync
             public int Key => _fd;
 
             public SafeHandle Handle => _handle!;
+
+            public override PipeScheduler? IOThreadScheduler => _iouring;
 
             public IOUringAsyncContext(IOUringThread thread, SafeHandle handle)
             {

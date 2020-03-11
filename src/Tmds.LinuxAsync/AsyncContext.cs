@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.IO.Pipelines;
 
 namespace Tmds.LinuxAsync
 {
@@ -31,5 +32,7 @@ namespace Tmds.LinuxAsync
 
         public void ReturnWriteOperation(AsyncOperation state)
             => Volatile.Write(ref _cachedWriteOperation, state);
+
+        public abstract PipeScheduler? IOThreadScheduler { get; }
     }
 }

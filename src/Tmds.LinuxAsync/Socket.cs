@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using System.IO.Pipelines;
 
 namespace Tmds.LinuxAsync
 {
@@ -164,5 +165,7 @@ namespace Tmds.LinuxAsync
                 return AsyncContext.RentWriteOperation<AwaitableSocketOperation>();
             }
         }
+
+        public PipeScheduler? IOThreadScheduler => AsyncContext.IOThreadScheduler;
     }
 }

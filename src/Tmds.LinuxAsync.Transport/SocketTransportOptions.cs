@@ -6,6 +6,14 @@ using System.Buffers;
 
 namespace Tmds.LinuxAsync.Transport
 {
+
+    public enum OutputWriterScheduler
+    {
+        IOQueue,
+        Inline,
+        IOThread
+    }
+
     public class SocketTransportOptions
     {
         /// <summary>
@@ -24,11 +32,12 @@ namespace Tmds.LinuxAsync.Transport
         /// </remarks>
         public bool NoDelay { get; set; } = true;
 
-        public bool CoalesceWrites { get; set; } = true;
-
         public bool ApplicationCodeIsNonBlocking { get; set; } = false;
 
         public bool DontAllocateMemoryForIdleConnections { get; set; } = true;
+
+        public OutputWriterScheduler OutputWriterScheduler { get; set; } = OutputWriterScheduler.IOQueue;
+
 
         /// <summary>
         /// The maximum length of the pending connection queue.

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO.Pipelines;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Tmds.Linux;
@@ -9,7 +10,7 @@ namespace Tmds.LinuxAsync
 {
     public partial class EPollAsyncEngine
     {
-        sealed class EPollThread : IDisposable
+        sealed class EPollThread : PipeScheduler, IDisposable
         {
             private const int EventBufferLength = 512;
             private const int PipeKey = -1;
@@ -27,7 +28,7 @@ namespace Tmds.LinuxAsync
             private int _blockedState;
 
             internal AsyncExecutionQueue? ExecutionQueue => _asyncExecutionQueue;
-            public bool BatchOnPollThread { get; }
+            public bool BatchOnIOThread { get; }
 
             public bool IsCurrentThread => object.ReferenceEquals(_thread, Thread.CurrentThread);
 
@@ -41,10 +42,10 @@ namespace Tmds.LinuxAsync
             private List<ScheduledAction> _scheduledActions;
             private List<ScheduledAction> _executingActions;
 
-            public EPollThread(bool useLinuxAio, bool batchOnPollThread)
+            public EPollThread(bool useLinuxAio, bool batchOnIOThread)
             {
                 _asyncContexts = new Dictionary<int, EPollAsyncContext>();
-                BatchOnPollThread = batchOnPollThread;
+                BatchOnIOThread = batchOnIOThread;
 
                 CreateResources(useLinuxAio);
 
@@ -191,7 +192,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public unsafe void Post(Action<object?> action, object? state)
+            public override void Schedule(Action<object?> action, object? state)
             {
                 // TODO: maybe special case when this is called from the EPollThread itself.
 
