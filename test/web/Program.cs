@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Tmds.LinuxAsync;
 using IoUring.Transport;
 using System.IO.Pipelines;
+using Tmds.LinuxAsync.Transport;
 #if RELEASE
 using Microsoft.Extensions.Logging;
 #endif
@@ -51,7 +52,7 @@ namespace web
                                 options.DeferSends = commandLineOptions.DeferSends.Value;
                                 options.DeferReceives = commandLineOptions.DeferReceives.Value;
                                 options.DontAllocateMemoryForIdleConnections = commandLineOptions.DontAllocateMemoryForIdleConnections.Value;
-                                options.CoalesceWrites = commandLineOptions.CoalesceWrites.Value;
+                                options.OutputWriterScheduler = commandLineOptions.OutputWriterScheduler;
                                 options.ApplicationCodeIsNonBlocking = commandLineOptions.ApplicationCodeIsNonBlocking.Value;
                             }
                         );
@@ -61,20 +62,22 @@ namespace web
 
         private static AsyncEngine CreateAsyncEngine(CommandLineOptions commandLineOptions)
         {
+            bool batchOnIOThread = !commandLineOptions.DispatchContinuations.Value ||
+                                          commandLineOptions.OutputWriterScheduler == OutputWriterScheduler.IOThread;
             switch (commandLineOptions.SocketEngine)
             {
                 case SocketEngineType.EPoll:
                     return new EPollAsyncEngine(threadCount: commandLineOptions.ThreadCount,
                         useLinuxAio: commandLineOptions.UseAio.Value,
-                        batchOnPollThread: !commandLineOptions.DispatchContinuations.Value);
+                        batchOnIOThread);
                 case SocketEngineType.IOUring:
                     return new IOUringAsyncEngine(threadCount: commandLineOptions.ThreadCount,
-                        batchOnIOUringThread: !commandLineOptions.DispatchContinuations.Value);
+                        batchOnIOThread);
                 case SocketEngineType.IOUringTransport:
                     // Create EPollAsyncEngine with threadCount of zero.
                     return new EPollAsyncEngine(threadCount: 0,
                         useLinuxAio: false,
-                        batchOnPollThread: false);
+                        batchOnIOThread);
                 default:
                     throw new NotSupportedException($"{commandLineOptions.SocketEngine} is not supported");
             }

@@ -116,7 +116,7 @@ namespace Tmds.LinuxAsync
             public bool ExecuteAsync(AsyncOperation operation, bool preferSync)
             {
                 bool finished = false;
-                bool batchOnIOUringThread = _thread.BatchOnIOUringThread // Avoid overhead of _thread.IsCurrentThread
+                bool batchOnIOUringThread = _thread.BatchOnIOThread // Avoid overhead of _thread.IsCurrentThread
                     && _thread.IsCurrentThread;
 
                 // Try executing without a lock.
@@ -165,8 +165,7 @@ namespace Tmds.LinuxAsync
                     }
                     if (postToIOThread)
                     {
-                        // TODO: an alternative could be to add the operation to the executionqueue here directly.
-                        _thread.Post((object? s) => ((Queue)s!).ExecuteQueued(AsyncOperationResult.NoResult), this);
+                        _thread.Schedule((object? s) => ((Queue)s!).ExecuteQueued(AsyncOperationResult.NoResult), this);
                     }
                 }
 
@@ -194,7 +193,7 @@ namespace Tmds.LinuxAsync
                     if (result == CancellationRequestResult.Requested)
                     {
                         // TODO: an alternative could be to add the operation to the executionqueue here directly.
-                        _thread.Post((object? s) => ((Queue)s!).CancelExecuting(), this);
+                        _thread.Schedule((object? s) => ((Queue)s!).CancelExecuting(), this);
                     }
                 }
 

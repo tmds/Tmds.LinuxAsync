@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -9,7 +10,7 @@ namespace Tmds.LinuxAsync
 {
     public partial class IOUringAsyncEngine
     {
-        sealed class IOUringThread : IDisposable
+        sealed class IOUringThread : PipeScheduler, IDisposable
         {
             private const int PipeKey = -1;
             private const int StateBlocked = 1;
@@ -25,7 +26,7 @@ namespace Tmds.LinuxAsync
 
             internal AsyncExecutionQueue ExecutionQueue => _iouring!;
 
-            public bool BatchOnIOUringThread { get; }
+            public bool BatchOnIOThread { get; }
 
             public bool IsCurrentThread => object.ReferenceEquals(_thread, Thread.CurrentThread);
 
@@ -39,9 +40,9 @@ namespace Tmds.LinuxAsync
             private List<ScheduledAction> _scheduledActions;
             private List<ScheduledAction> _executingActions;
 
-            public IOUringThread(bool batchOnIOUringThread)
+            public IOUringThread(bool batchOnIOThread)
             {
-                BatchOnIOUringThread = batchOnIOUringThread;
+                BatchOnIOThread = batchOnIOThread;
                 _asyncContexts = new Dictionary<int, IOUringAsyncContext>();
 
                 CreateResources();
@@ -131,7 +132,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public unsafe void Post(Action<object?> action, object? state)
+            public override void Schedule(Action<object?> action, object? state)
             {
                 // TODO: maybe special case when this is called from the IOUringThread itself.
 

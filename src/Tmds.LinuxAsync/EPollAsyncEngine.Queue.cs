@@ -117,7 +117,7 @@ namespace Tmds.LinuxAsync
             {
                 bool finished = false;
                 int? eventCounterSnapshot = null;
-                bool batchOnPollThread = _thread.BatchOnPollThread // Avoid overhead of _thread.IsCurrentThread
+                bool batchOnPollThread = _thread.BatchOnIOThread // Avoid overhead of _thread.IsCurrentThread
                     && _thread.IsCurrentThread;
 
                 // Try executing without a lock.
@@ -177,7 +177,7 @@ namespace Tmds.LinuxAsync
                     }
                     if (postToIOThread)
                     {
-                        _thread.Post((object? s) => ((Queue)s!).ExecuteQueued(triggeredByPoll: false, AsyncOperationResult.NoResult), this);
+                        _thread.Schedule((object? s) => ((Queue)s!).ExecuteQueued(triggeredByPoll: false, AsyncOperationResult.NoResult), this);
                     }
                 }
 
