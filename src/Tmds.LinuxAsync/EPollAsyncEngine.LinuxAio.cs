@@ -47,7 +47,7 @@ namespace Tmds.LinuxAsync
             // private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory); // TODO
 
             public unsafe LinuxAio() :
-                base(supportsPolling: false)
+                base(supportsPolling: false, isThreadSafe: false)
             {
                 _memoryHandles = new List<MemoryHandle>();
                 try

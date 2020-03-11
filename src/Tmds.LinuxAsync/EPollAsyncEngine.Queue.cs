@@ -65,7 +65,7 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            AsyncExecutionResult result = TryExecuteOperation(op, asyncResult, triggeredByPoll, op.IsCancellationRequested);
+                            AsyncExecutionResult result = TryExecuteOperation(asyncOnly: false, op, asyncResult, triggeredByPoll, op.IsCancellationRequested);
 
                             // Operation finished, set CompletionFlags.
                             if (result == AsyncExecutionResult.Finished)
@@ -97,9 +97,9 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            private AsyncExecutionResult TryExecuteOperation(AsyncOperation op, AsyncOperationResult asyncResult, bool triggeredByPoll = false, bool isCancellationRequested = false)
+            private AsyncExecutionResult TryExecuteOperation(bool asyncOnly, AsyncOperation op, AsyncOperationResult asyncResult, bool triggeredByPoll = false, bool isCancellationRequested = false)
             {
-                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, isCancellationRequested, _thread.ExecutionQueue,
+                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, isCancellationRequested, asyncOnly, _thread.ExecutionQueue,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).ExecuteQueued(triggeredByPoll: false, aResult)
                                                     , state: this, data: 0, asyncResult);
@@ -129,7 +129,7 @@ namespace Tmds.LinuxAsync
 
                 if (!finished)
                 {
-                    bool postToPollThread = false;
+                    bool postToIOThread = false;
                     lock (Gate)
                     {
                         if (_tail == AsyncOperation.DisposedSentinel)
@@ -142,7 +142,7 @@ namespace Tmds.LinuxAsync
                         {
                             if (batchOnPollThread)
                             {
-                                AsyncExecutionResult result = TryExecuteOperation(operation, AsyncOperationResult.NoResult);
+                                AsyncExecutionResult result = TryExecuteOperation(asyncOnly: false, operation, AsyncOperationResult.NoResult);
                                 finished = result == AsyncExecutionResult.Finished;
                             }
                             else if (preferSync)
@@ -155,7 +155,18 @@ namespace Tmds.LinuxAsync
                             }
                             else
                             {
-                                postToPollThread = true;
+                                AsyncExecutionQueue? executionQueue = _thread.ExecutionQueue;
+                                if (executionQueue?.IsThreadSafe == true)
+                                {
+                                    AsyncExecutionResult result = TryExecuteOperation(asyncOnly: true, operation, AsyncOperationResult.NoResult);
+                                    finished = result == AsyncExecutionResult.Finished;
+                                    // If we couldn't queue the operation (Executing), we need to post.
+                                    postToIOThread = result == AsyncExecutionResult.WaitForPoll;
+                                }
+                                else
+                                {
+                                    postToIOThread = true;
+                                }
                             }
                         }
 
@@ -164,7 +175,7 @@ namespace Tmds.LinuxAsync
                             QueueAdd(ref _tail, operation);
                         }
                     }
-                    if (postToPollThread)
+                    if (postToIOThread)
                     {
                         _thread.Post((object? s) => ((Queue)s!).ExecuteQueued(triggeredByPoll: false, AsyncOperationResult.NoResult), this);
                     }

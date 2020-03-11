@@ -56,7 +56,7 @@ namespace Tmds.LinuxAsync
             private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory);
 
             public unsafe IOUringExecutionQueue() :
-                base(supportsPolling: true)
+                base(supportsPolling: true, isThreadSafe: false)
             {
                 _operationPool = new Stack<Operation>();
                 _operations = new Dictionary<ulong, Operation>();

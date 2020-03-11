@@ -65,7 +65,7 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            AsyncExecutionResult result = TryExecuteOperation(op, asyncResult, op.IsCancellationRequested);
+                            AsyncExecutionResult result = TryExecuteOperation(asyncOnly: false, op, asyncResult, op.IsCancellationRequested);
 
                             // Operation finished, set CompletionFlags.
                             if (result == AsyncExecutionResult.Finished)
@@ -97,9 +97,9 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            private AsyncExecutionResult TryExecuteOperation(AsyncOperation op, AsyncOperationResult asyncResult, bool isCancellationRequested = false)
+            private AsyncExecutionResult TryExecuteOperation(bool asyncOnly, AsyncOperation op, AsyncOperationResult asyncResult, bool isCancellationRequested = false)
             {
-                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, isCancellationRequested, _thread.ExecutionQueue,
+                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, isCancellationRequested, asyncOnly, _thread.ExecutionQueue,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).ExecuteQueued(aResult)
                                                     , state: this, data: DataForOperation(op), asyncResult);
@@ -127,7 +127,7 @@ namespace Tmds.LinuxAsync
 
                 if (!finished)
                 {
-                    bool postToIOUringThread = false;
+                    bool postToIOThread = false;
                     lock (Gate)
                     {
                         if (_tail == AsyncOperation.DisposedSentinel)
@@ -140,12 +140,21 @@ namespace Tmds.LinuxAsync
                         {
                             if (batchOnIOUringThread)
                             {
-                                AsyncExecutionResult result = TryExecuteOperation(operation, AsyncOperationResult.NoResult);
+                                AsyncExecutionResult result = TryExecuteOperation(asyncOnly: false, operation, AsyncOperationResult.NoResult);
                                 finished = result == AsyncExecutionResult.Finished;
                             }
                             else
                             {
-                                postToIOUringThread = true;
+                                AsyncExecutionQueue? executionQueue = _thread.ExecutionQueue;
+                                if (executionQueue?.IsThreadSafe == true)
+                                {
+                                    AsyncExecutionResult result = TryExecuteOperation(asyncOnly: true, operation, AsyncOperationResult.NoResult);
+                                    finished = result == AsyncExecutionResult.Finished;
+                                }
+                                else
+                                {
+                                    postToIOThread = true;
+                                }
                             }
                         }
 
@@ -154,7 +163,7 @@ namespace Tmds.LinuxAsync
                             QueueAdd(ref _tail, operation);
                         }
                     }
-                    if (postToIOUringThread)
+                    if (postToIOThread)
                     {
                         // TODO: an alternative could be to add the operation to the executionqueue here directly.
                         _thread.Post((object? s) => ((Queue)s!).ExecuteQueued(AsyncOperationResult.NoResult), this);
