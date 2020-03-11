@@ -85,9 +85,13 @@ namespace Tmds.LinuxAsync
         // Indicates support for PollIn/Out and 0-byte reads.
         public bool SupportsPolling { get; }
 
-        protected AsyncExecutionQueue(bool supportsPolling)
+        // Indicates operations may be added from different threads.
+        public bool IsThreadSafe { get; }
+
+        protected AsyncExecutionQueue(bool supportsPolling, bool isThreadSafe)
         {
             SupportsPolling = supportsPolling;
+            IsThreadSafe = isThreadSafe;
         }
 
         abstract protected void Dispose(bool disposing);

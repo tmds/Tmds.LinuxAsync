@@ -65,7 +65,7 @@ namespace Tmds.LinuxAsync
                                 break;
                             }
 
-                            AsyncExecutionResult result = TryExecuteOperation(op, asyncResult, triggeredByPoll, op.IsCancellationRequested);
+                            AsyncExecutionResult result = TryExecuteOperation(onIOThread: true, asyncOnly: false, op, asyncResult, triggeredByPoll, op.IsCancellationRequested);
 
                             // Operation finished, set CompletionFlags.
                             if (result == AsyncExecutionResult.Finished)
@@ -97,9 +97,14 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            private AsyncExecutionResult TryExecuteOperation(AsyncOperation op, AsyncOperationResult asyncResult, bool triggeredByPoll = false, bool isCancellationRequested = false)
+            private AsyncExecutionResult TryExecuteOperation(bool onIOThread, bool asyncOnly, AsyncOperation op, AsyncOperationResult asyncResult, bool triggeredByPoll = false, bool isCancellationRequested = false)
             {
-                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, isCancellationRequested, _thread.ExecutionQueue,
+                AsyncExecutionQueue? executionQueue = _thread.ExecutionQueue;
+                if (!onIOThread && executionQueue!= null && !executionQueue.IsThreadSafe)
+                {
+                    executionQueue = null;
+                }
+                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, isCancellationRequested, asyncOnly, executionQueue,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).ExecuteQueued(triggeredByPoll: false, aResult)
                                                     , state: this, data: 0, asyncResult);
@@ -129,7 +134,7 @@ namespace Tmds.LinuxAsync
 
                 if (!finished)
                 {
-                    bool postToPollThread = false;
+                    bool postToIOThread = false;
                     lock (Gate)
                     {
                         if (_tail == AsyncOperation.DisposedSentinel)
@@ -142,7 +147,7 @@ namespace Tmds.LinuxAsync
                         {
                             if (batchOnPollThread)
                             {
-                                AsyncExecutionResult result = TryExecuteOperation(operation, AsyncOperationResult.NoResult);
+                                AsyncExecutionResult result = TryExecuteOperation(onIOThread: true, asyncOnly: false, operation, AsyncOperationResult.NoResult);
                                 finished = result == AsyncExecutionResult.Finished;
                             }
                             else if (preferSync)
@@ -155,7 +160,16 @@ namespace Tmds.LinuxAsync
                             }
                             else
                             {
-                                postToPollThread = true;
+                                AsyncExecutionQueue? executionQueue = _thread.ExecutionQueue;
+                                if (executionQueue?.IsThreadSafe == true)
+                                {
+                                    AsyncExecutionResult result = TryExecuteOperation(onIOThread: false, asyncOnly: true, operation, AsyncOperationResult.NoResult);
+                                    finished = result == AsyncExecutionResult.Finished;
+                                }
+                                else
+                                {
+                                    postToIOThread = true;
+                                }
                             }
                         }
 
@@ -164,7 +178,7 @@ namespace Tmds.LinuxAsync
                             QueueAdd(ref _tail, operation);
                         }
                     }
-                    if (postToPollThread)
+                    if (postToIOThread)
                     {
                         _thread.Post((object? s) => ((Queue)s!).ExecuteQueued(triggeredByPoll: false, AsyncOperationResult.NoResult), this);
                     }

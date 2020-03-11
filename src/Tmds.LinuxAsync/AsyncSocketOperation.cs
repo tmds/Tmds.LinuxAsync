@@ -58,7 +58,7 @@ namespace Tmds.LinuxAsync
             return false;
         }
 
-        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             AsyncExecutionResult result;
 
@@ -66,16 +66,16 @@ namespace Tmds.LinuxAsync
             switch (Saea.CurrentOperation)
             {
                 case SocketAsyncOperation.Receive:
-                    result = TryExecuteReceive(triggeredByPoll, isCancellationRequested, executionQueue, callback, state, data, asyncResult);
+                    result = TryExecuteReceive(triggeredByPoll, isCancellationRequested, asyncOnly, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.Send:
-                    result = TryExecuteSend(isCancellationRequested, executionQueue, callback, state, data, asyncResult);
+                    result = TryExecuteSend(isCancellationRequested, asyncOnly, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.Accept:
-                    result = TryExecuteAccept(isCancellationRequested, executionQueue, callback, state, data, asyncResult);
+                    result = TryExecuteAccept(isCancellationRequested, asyncOnly, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.Connect:
-                    result = TryExecuteConnect(isCancellationRequested, executionQueue, callback, state, data, asyncResult);
+                    result = TryExecuteConnect(isCancellationRequested, asyncOnly, executionQueue, callback, state, data, asyncResult);
                     break;
                 case SocketAsyncOperation.None:
                     result = AsyncExecutionResult.Finished;
@@ -90,7 +90,7 @@ namespace Tmds.LinuxAsync
             return result;
         }
 
-        private unsafe AsyncExecutionResult TryExecuteReceive(bool triggeredByPoll, bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private unsafe AsyncExecutionResult TryExecuteReceive(bool triggeredByPoll, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             IList<ArraySegment<byte>>? bufferList = Saea.BufferList;
             if (bufferList != null)
@@ -165,8 +165,15 @@ namespace Tmds.LinuxAsync
                     }
                     else if (result == AsyncExecutionResult.Executing)
                     {
-                        (socketError, bytesTransferred) = SocketPal.Recv(socket.SafeHandle, memory);
-                        result = socketError == SocketError.WouldBlock ? AsyncExecutionResult.WaitForPoll : AsyncExecutionResult.Finished;
+                        if (asyncOnly)
+                        {
+                            result = AsyncExecutionResult.WaitForPoll;
+                        }
+                        else
+                        {
+                            (socketError, bytesTransferred) = SocketPal.Recv(socket.SafeHandle, memory);
+                            result = socketError == SocketError.WouldBlock ? AsyncExecutionResult.WaitForPoll : AsyncExecutionResult.Finished;
+                        }
                     }
                 }
             }
@@ -181,26 +188,26 @@ namespace Tmds.LinuxAsync
             return result;
         }
 
-        private unsafe AsyncExecutionResult TryExecuteSend(bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
+        private unsafe AsyncExecutionResult TryExecuteSend(bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
         {
             IList<ArraySegment<byte>>? bufferList = Saea.BufferList;
 
             if (bufferList == null)
             {
-                return SendSingleBuffer(Saea.MemoryBuffer, isCancellationRequested, executionQueue, callback, state, data, result);
+                return SendSingleBuffer(Saea.MemoryBuffer, isCancellationRequested, asyncOnly, executionQueue, callback, state, data, result);
             }
             else
             {
-                return SendMultipleBuffers(bufferList, isCancellationRequested, executionQueue, callback, state, data, result);
+                return SendMultipleBuffers(bufferList, isCancellationRequested, asyncOnly, executionQueue, callback, state, data, result);
             }
         }
 
-        private unsafe AsyncExecutionResult SendMultipleBuffers(IList<ArraySegment<byte>> buffers, bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private unsafe AsyncExecutionResult SendMultipleBuffers(IList<ArraySegment<byte>> buffers, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             // TODO: really support multi-buffer sends...
             for (; _bufferIndex < buffers.Count; _bufferIndex++)
             {
-                AsyncExecutionResult bufferSendResult = SendSingleBuffer(buffers[_bufferIndex], isCancellationRequested, executionQueue, callback, state, data, asyncResult);
+                AsyncExecutionResult bufferSendResult = SendSingleBuffer(buffers[_bufferIndex], isCancellationRequested, asyncOnly, executionQueue, callback, state, data, asyncResult);
                 if (bufferSendResult == AsyncExecutionResult.WaitForPoll || bufferSendResult == AsyncExecutionResult.Executing)
                 {
                     return bufferSendResult;
@@ -214,7 +221,7 @@ namespace Tmds.LinuxAsync
             return AsyncExecutionResult.Finished;
         }
 
-        private AsyncExecutionResult SendSingleBuffer(Memory<byte> memory, bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private AsyncExecutionResult SendSingleBuffer(Memory<byte> memory, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             SocketError socketError = SocketError.SocketError;
             AsyncExecutionResult result = AsyncExecutionResult.Executing;
@@ -272,25 +279,32 @@ namespace Tmds.LinuxAsync
                 }
                 else if (result == AsyncExecutionResult.Executing)
                 {
-                    while (true)
+                    if (asyncOnly)
                     {
-                        Memory<byte> remaining = memory.Slice(_bytesTransferredTotal);
-                        int bytesTransferred;
-                        (socketError, bytesTransferred) = SocketPal.Send(socket.SafeHandle, remaining);
-                        if (socketError == SocketError.Success)
+                        result = AsyncExecutionResult.WaitForPoll;
+                    }
+                    else
+                    {
+                        while (true)
                         {
-                            _bytesTransferredTotal += bytesTransferred;
-                            if (_bytesTransferredTotal == memory.Length || bytesTransferred == 0)
+                            Memory<byte> remaining = memory.Slice(_bytesTransferredTotal);
+                            int bytesTransferred;
+                            (socketError, bytesTransferred) = SocketPal.Send(socket.SafeHandle, remaining);
+                            if (socketError == SocketError.Success)
+                            {
+                                _bytesTransferredTotal += bytesTransferred;
+                                if (_bytesTransferredTotal == memory.Length || bytesTransferred == 0)
+                                {
+                                    break;
+                                }
+                            }
+                            else
                             {
                                 break;
                             }
                         }
-                        else
-                        {
-                            break;
-                        }
+                        result = socketError == SocketError.WouldBlock ? AsyncExecutionResult.WaitForPoll : AsyncExecutionResult.Finished;
                     }
-                    result = socketError == SocketError.WouldBlock ? AsyncExecutionResult.WaitForPoll : AsyncExecutionResult.Finished;
                 }
             }
 
@@ -303,7 +317,7 @@ namespace Tmds.LinuxAsync
             return result;
         }
 
-        private AsyncExecutionResult TryExecuteConnect(bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private AsyncExecutionResult TryExecuteConnect(bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             Socket? socket = Saea.CurrentSocket;
             IPEndPoint? ipEndPoint = Saea.RemoteEndPoint as IPEndPoint;
@@ -319,7 +333,8 @@ namespace Tmds.LinuxAsync
 
             // When there is a pollable executionQueue, use it to poll, and then try the operation.
             bool hasPollableExecutionQueue = executionQueue?.SupportsPolling == true;
-            if (!hasPollableExecutionQueue || asyncResult.HasResult)
+            bool trySync = !hasPollableExecutionQueue && !asyncOnly;
+            if (trySync || asyncResult.HasResult)
             {
                 SocketError socketError;
                 if (!_connectCalled)
@@ -357,7 +372,7 @@ namespace Tmds.LinuxAsync
             }
         }
 
-        private AsyncExecutionResult TryExecuteAccept(bool isCancellationRequested, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private AsyncExecutionResult TryExecuteAccept(bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
         {
             Socket? socket = Saea.CurrentSocket;
 
@@ -368,7 +383,8 @@ namespace Tmds.LinuxAsync
 
             // When there is a pollable executionQueue, use it to poll, and then try the operation.
             bool hasPollableExecutionQueue = executionQueue?.SupportsPolling == true;
-            if (!hasPollableExecutionQueue || asyncResult.HasResult)
+            bool trySync = !hasPollableExecutionQueue && !asyncOnly;
+            if (trySync || asyncResult.HasResult)
             {
                 (SocketError socketError, Socket? acceptedSocket) = SocketPal.Accept(socket.SafeHandle);
                 if (socketError != SocketError.WouldBlock)
