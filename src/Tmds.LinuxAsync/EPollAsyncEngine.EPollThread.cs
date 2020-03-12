@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Runtime.InteropServices;
@@ -38,9 +39,7 @@ namespace Tmds.LinuxAsync
                 public Action<object?> Action;
             }
 
-            private readonly object _actionQueueGate = new object();
-            private List<ScheduledAction> _scheduledActions;
-            private List<ScheduledAction> _executingActions;
+            private readonly ConcurrentQueue<ScheduledAction> _scheduledActions;
 
             public EPollThread(bool useLinuxAio, bool batchOnIOThread)
             {
@@ -49,8 +48,7 @@ namespace Tmds.LinuxAsync
 
                 CreateResources(useLinuxAio);
 
-                _scheduledActions = new List<ScheduledAction>(1024);
-                _executingActions = new List<ScheduledAction>(1024);
+                _scheduledActions = new ConcurrentQueue<ScheduledAction>();
                 _blockedState = StateBlocked;
 
                 _thread = new Thread(EventLoop);
@@ -126,17 +124,12 @@ namespace Tmds.LinuxAsync
                             }
                         }
 
+                        actionsRemaining = actionsRemaining || !_scheduledActions.IsEmpty;
                         if (!actionsRemaining)
                         {
-                            // Check if there are scheduled actions remaining.
-                            lock (_actionQueueGate)
-                            {
-                                actionsRemaining = _scheduledActions.Count > 0;
-                                if (!actionsRemaining)
-                                {
-                                    Volatile.Write(ref _blockedState, StateBlocked);
-                                }
-                            }
+                            Volatile.Write(ref _blockedState, StateBlocked);
+                            // Scheduled actions may be added in the meanwhile, check IsEmpty again.
+                            actionsRemaining = !_scheduledActions.IsEmpty;
                         }
                         epollTimeout = actionsRemaining ? 0 : -1;
                     }
@@ -194,27 +187,19 @@ namespace Tmds.LinuxAsync
 
             public override void Schedule(Action<object?> action, object? state)
             {
-                // TODO: maybe special case when this is called from the EPollThread itself.
-
-                int blockingState;
-                lock (_actionQueueGate)
+                bool wasEmpty = _scheduledActions.IsEmpty;
+                _scheduledActions.Enqueue(new ScheduledAction
                 {
-                    if (_disposed)
+                    State = state,
+                    Action = action
+                });
+                if (wasEmpty)
+                {
+                    int previousState = Interlocked.CompareExchange(ref _blockedState, StateNotBlocked, StateBlocked);
+                    if (previousState == StateBlocked)
                     {
-                        ThrowHelper.ThrowObjectDisposedException<EPollThread>();
+                        WriteToPipe();
                     }
-
-                    blockingState = Interlocked.CompareExchange(ref _blockedState, StateNotBlocked, StateBlocked);
-                    _scheduledActions.Add(new ScheduledAction
-                    {
-                        State = state,
-                        Action = action
-                    });
-                }
-
-                if (blockingState == StateBlocked)
-                {
-                    WriteToPipe();
                 }
             }
 
@@ -264,32 +249,11 @@ namespace Tmds.LinuxAsync
 
             private unsafe void ExecuteScheduledActions()
             {
-                List<ScheduledAction> actionQueue;
-                lock (_actionQueueGate)
+                int count = _scheduledActions.Count;
+                for (int i = 0; i < count; i++)
                 {
-                    actionQueue = _scheduledActions;
-                    _scheduledActions = _executingActions;
-                    _executingActions = actionQueue;
-                }
-
-                if (actionQueue.Count > 0)
-                {
-                    foreach (var scheduleAction in actionQueue)
-                    {
-                        scheduleAction.Action(scheduleAction.State);
-                    }
-                    actionQueue.Clear();
-                }
-            }
-
-            private bool HasScheduledActions
-            {
-                get
-                {
-                    lock (_actionQueueGate)
-                    {
-                        return _scheduledActions.Count > 0;
-                    }
+                    _scheduledActions.TryDequeue(out ScheduledAction scheduledAction);
+                    scheduledAction.Action(scheduledAction.State);
                 }
             }
 
