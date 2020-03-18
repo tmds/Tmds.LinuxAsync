@@ -44,6 +44,16 @@ namespace web
                                     PipeScheduler.Inline : PipeScheduler.ThreadPool;
                             }));
                     }
+                    else if (commandLineOptions.SocketEngine == SocketEngineType.LinuxTransport)
+                    {
+                        webBuilder.UseLinuxTransport(options =>
+                        {
+                            options.ThreadCount = commandLineOptions.ThreadCount;
+                            options.DeferSend = commandLineOptions.DeferSends.Value;
+                            options.ApplicationSchedulingMode= commandLineOptions.ApplicationCodeIsNonBlocking.Value ?
+                                    PipeScheduler.Inline : PipeScheduler.ThreadPool;
+                        });
+                    }
                     else
                     {
                         webBuilder.UseLinuxAsyncSockets(options =>
@@ -74,6 +84,7 @@ namespace web
                     return new IOUringAsyncEngine(threadCount: commandLineOptions.ThreadCount,
                         batchOnIOThread);
                 case SocketEngineType.IOUringTransport:
+                case SocketEngineType.LinuxTransport:
                     // Create EPollAsyncEngine with threadCount of zero.
                     return new EPollAsyncEngine(threadCount: 0,
                         useLinuxAio: false,
