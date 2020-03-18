@@ -10,7 +10,8 @@ namespace web
     {
         EPoll,
         IOUring,
-        IOUringTransport
+        IOUringTransport,
+        LinuxTransport
     }
 
     public class CommandLineOptions
@@ -18,7 +19,7 @@ namespace web
         // the booleans MUST be nullable, otherwise --arg false does not work...
         // see https://github.com/commandlineparser/commandline/issues/290 for more details
 
-        [Option('e', "engine", Required = false, Default = SocketEngineType.IOUring, HelpText = "EPoll/IOUring/IOUringTransport")]
+        [Option('e', "engine", Required = false, Default = SocketEngineType.IOUring, HelpText = "EPoll/IOUring/IOUringTransport/LinuxTransport")]
         public SocketEngineType SocketEngine { get; set; }
 
         [Option('t', "thread-count", Required = false, Default = 1, HelpText = "Thread Count, default value is 1")]
