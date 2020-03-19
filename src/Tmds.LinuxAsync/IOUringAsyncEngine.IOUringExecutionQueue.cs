@@ -13,8 +13,8 @@ namespace Tmds.LinuxAsync
     {
         sealed class IOUringExecutionQueue : AsyncExecutionQueue
         {
-            private const ulong MaskBit = 1UL << 63;
-            private const ulong IgnoredData = ulong.MaxValue | MaskBit;
+            private const ulong PollMaskBit = 1UL << 63;
+            private const ulong IgnoredData = ulong.MaxValue | PollMaskBit;
             private const int MemoryAlignment = 8;
             private const int SubmissionQueueRequestedLength = 1024; // TODO
             // private const int CompletionQueueLength = CompletionQueueLength; // TODO
@@ -28,12 +28,19 @@ namespace Tmds.LinuxAsync
                 PollOut,
                 Cancel
             }
+            
+            enum OperationStatus
+            {
+                Execution,
+                PollForReadWrite
+            }
 
             // TODO: maybe make this an interface that is implemented by a (read/write) Queue class
             //       (owned by the AsyncContext) which then gets added as an operation.
             class Operation
             {
                 public OperationType OperationType;
+                public OperationStatus Status;
                 public SafeHandle? Handle;
 
                 public Memory<byte> Memory;
@@ -43,6 +50,8 @@ namespace Tmds.LinuxAsync
                 public object? State;
 
                 public int Data;
+
+                public override string ToString() => OperationType.ToString();
             }
 
             private Dictionary<ulong, Operation> _operations;
@@ -97,6 +106,10 @@ namespace Tmds.LinuxAsync
                 operation.Callback = callback;
                 operation.State = state;
                 operation.Data = data;
+                
+                // Since we can not do linked R/W in 5.5, we'll need to submit a poll first:
+                operation.Status = OperationStatus.PollForReadWrite;
+                
                 AddNewOperation(key, operation);
             }
 
@@ -110,6 +123,10 @@ namespace Tmds.LinuxAsync
                 operation.Callback = callback;
                 operation.State = state;
                 operation.Data = data;
+                
+                // Since we can not do linked R/W in 5.5, we'll need to submit a poll first:
+                operation.Status = OperationStatus.PollForReadWrite;
+                
                 AddNewOperation(key, operation);
             }
 
@@ -176,9 +193,17 @@ namespace Tmds.LinuxAsync
                                 iovec* iov = &iovs[iovIndex++]; // Linux 5.6 doesn't need an iovec (IORING_OP_READ)
                                 *iov = new iovec { iov_base = handle.Pointer, iov_len = op.Memory.Length };
                                 sqesAvailable -= 2;
+                                
                                 // Poll first, in case the fd is non-blocking.
-                                ring.PreparePollAdd(fd, (ushort)POLLIN, key | MaskBit, options: SubmissionOption.Link);
-                                ring.PrepareReadV(fd, iov, 1, userData: key);
+                                if (op.Status == OperationStatus.PollForReadWrite)
+                                {
+                                    ring.PreparePollAdd(fd, (ushort)POLLIN, key | PollMaskBit);
+                                }
+                                else
+                                {
+                                    ring.PrepareReadV(fd, iov, 1, userData: key);
+                                }
+
                                 break;
                             }
                         case OperationType.Write:
@@ -188,9 +213,17 @@ namespace Tmds.LinuxAsync
                                 iovec* iov = &iovs[iovIndex++]; // Linux 5.6 doesn't need an iovec (IORING_OP_WRITE)
                                 *iov = new iovec { iov_base = handle.Pointer, iov_len = op.Memory.Length };
                                 sqesAvailable -= 2;
+                                
                                 // Poll first, in case the fd is non-blocking.
-                                ring.PreparePollAdd(fd, (ushort)POLLOUT, key | MaskBit, options: SubmissionOption.Link);
-                                ring.PrepareWriteV(fd, iov, 1, userData: key);
+                                if (op.Status == OperationStatus.PollForReadWrite)
+                                {
+                                    ring.PreparePollAdd(fd, (ushort) POLLOUT, key | PollMaskBit);
+                                }
+                                else
+                                {
+                                    ring.PrepareWriteV(fd, iov, 1, userData: key);
+                                }
+                                
                                 break;
                             }
                         case OperationType.PollIn:
@@ -209,7 +242,7 @@ namespace Tmds.LinuxAsync
                             {
                                 sqesAvailable -= 2;
                                 // Cancel the operation and possibly associated poll operation.
-                                ring.PrepareCancel(opUserData: key | MaskBit, userData: IgnoredData);
+                                ring.PrepareCancel(opUserData: key | PollMaskBit, userData: IgnoredData);
                                 ring.PrepareCancel(opUserData: key,           userData: IgnoredData);
                                 // Cancel operations aren't added to the dictionary, we can return it now.
                                 ReturnOperation(op);
@@ -258,8 +291,10 @@ namespace Tmds.LinuxAsync
                 while (_ring!.TryRead(out Completion completion))
                 {
                     ulong key = completion.userData;
-                    if (_operations.Remove(key, out Operation? op))
+                    if ((key & PollMaskBit) == 0)
                     {
+                        _operations.Remove(key, out Operation? op);
+                        Debug.Assert(op != null);
                         // Clean up
                         op.MemoryHandle.Dispose();
 
@@ -276,7 +311,15 @@ namespace Tmds.LinuxAsync
                     }
                     else
                     {
-                        Debug.Assert((key & (1UL << 63)) != 0);
+                        // must be a completion for a poll for R/W
+                        _operations.TryGetValue(key & ~PollMaskBit, out Operation? op);
+                        Debug.Assert(op != null);
+                        Debug.Assert(op.Status == OperationStatus.PollForReadWrite);
+                        Debug.Assert(completion.result > 0);
+                        op.Status = OperationStatus.Execution;
+                        
+                        // Re-adding the operation to submit R/W:
+                        _newOperations.Add(op);
                     }
                 }
             }
