@@ -97,5 +97,21 @@ namespace Tmds.LinuxAsync
                 context.TryCancelAndComplete(this, completionFlags);
             }
         }
+
+        protected void ReturnThis()
+        {
+            AsyncContext asyncContext = CurrentAsyncContext!;
+            CurrentAsyncContext = null;
+            CompletionFlags = OperationCompletionFlags.None;
+
+            if (IsReadNotWrite)
+            {
+                asyncContext.ReturnReadOperation(this);
+            }
+            else
+            {
+                asyncContext.ReturnWriteOperation(this);
+            }
+        }
     }
 }
