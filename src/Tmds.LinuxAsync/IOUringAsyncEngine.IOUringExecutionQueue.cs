@@ -186,44 +186,38 @@ namespace Tmds.LinuxAsync
                     ulong key = CalculateKey(op.Handle, op.Data);
                     switch (op.OperationType)
                     {
-                        case OperationType.Read:
+                        case OperationType.Read when op.Status == OperationStatus.PollForReadWrite:
+                            {
+                                // Poll first, in case the fd is non-blocking.
+                                sqesAvailable -= 1;
+                                ring.PreparePollAdd(fd, (ushort)POLLIN, key | PollMaskBit);
+                                break;
+                            }
+                        case OperationType.Read when op.Status == OperationStatus.Execution:
                             {
                                 MemoryHandle handle = op.Memory.Pin();
                                 op.MemoryHandle = handle;
                                 iovec* iov = &iovs[iovIndex++]; // Linux 5.6 doesn't need an iovec (IORING_OP_READ)
                                 *iov = new iovec { iov_base = handle.Pointer, iov_len = op.Memory.Length };
-                                sqesAvailable -= 2;
-                                
-                                // Poll first, in case the fd is non-blocking.
-                                if (op.Status == OperationStatus.PollForReadWrite)
-                                {
-                                    ring.PreparePollAdd(fd, (ushort)POLLIN, key | PollMaskBit);
-                                }
-                                else
-                                {
-                                    ring.PrepareReadV(fd, iov, 1, userData: key);
-                                }
-
+                                sqesAvailable -= 1;
+                                ring.PrepareReadV(fd, iov, 1, userData: key);
                                 break;
                             }
-                        case OperationType.Write:
+                        case OperationType.Write when op.Status == OperationStatus.PollForReadWrite:
+                            {
+                                // Poll first, in case the fd is non-blocking.
+                                sqesAvailable -= 1;
+                                ring.PreparePollAdd(fd, (ushort) POLLOUT, key | PollMaskBit);
+                                break;
+                            }
+                        case OperationType.Write when  op.Status == OperationStatus.Execution:
                             {
                                 MemoryHandle handle = op.Memory.Pin();
                                 op.MemoryHandle = handle;
                                 iovec* iov = &iovs[iovIndex++]; // Linux 5.6 doesn't need an iovec (IORING_OP_WRITE)
                                 *iov = new iovec { iov_base = handle.Pointer, iov_len = op.Memory.Length };
-                                sqesAvailable -= 2;
-                                
-                                // Poll first, in case the fd is non-blocking.
-                                if (op.Status == OperationStatus.PollForReadWrite)
-                                {
-                                    ring.PreparePollAdd(fd, (ushort) POLLOUT, key | PollMaskBit);
-                                }
-                                else
-                                {
-                                    ring.PrepareWriteV(fd, iov, 1, userData: key);
-                                }
-                                
+                                sqesAvailable -= 1;
+                                ring.PrepareWriteV(fd, iov, 1, userData: key);
                                 break;
                             }
                         case OperationType.PollIn:
