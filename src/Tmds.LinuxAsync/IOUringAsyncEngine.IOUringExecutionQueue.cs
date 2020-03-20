@@ -291,7 +291,19 @@ namespace Tmds.LinuxAsync
                 while (_ring!.TryRead(out Completion completion))
                 {
                     ulong key = completion.userData;
-                    if ((key & PollMaskBit) == 0)
+                    if ((key & PollMaskBit) != 0)
+                    {
+                        // must be a completion for a poll for R/W
+                        _operations.TryGetValue(key & ~PollMaskBit, out Operation? op);
+                        Debug.Assert(op != null);
+                        Debug.Assert(op.Status == OperationStatus.PollForReadWrite);
+                        Debug.Assert(completion.result > 0);
+                        op.Status = OperationStatus.Execution;
+                        
+                        // Re-adding the operation to submit R/W:
+                        _newOperations.Add(op);
+                    }
+                    else
                     {
                         _operations.Remove(key, out Operation? op);
                         Debug.Assert(op != null);
@@ -308,18 +320,6 @@ namespace Tmds.LinuxAsync
 
                         // Complete
                         callback(new AsyncOperationResult(completion.result), state, data);
-                    }
-                    else
-                    {
-                        // must be a completion for a poll for R/W
-                        _operations.TryGetValue(key & ~PollMaskBit, out Operation? op);
-                        Debug.Assert(op != null);
-                        Debug.Assert(op.Status == OperationStatus.PollForReadWrite);
-                        Debug.Assert(completion.result > 0);
-                        op.Status = OperationStatus.Execution;
-                        
-                        // Re-adding the operation to submit R/W:
-                        _newOperations.Add(op);
                     }
                 }
             }
