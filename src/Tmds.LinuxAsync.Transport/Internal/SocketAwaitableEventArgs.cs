@@ -20,6 +20,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
         private Action _callback;
 
         public SocketAwaitableEventArgs(PipeScheduler ioScheduler)
+            : base(unsafeSuppressExecutionContextFlow: true)
         {
             _ioScheduler = ioScheduler;
         }
