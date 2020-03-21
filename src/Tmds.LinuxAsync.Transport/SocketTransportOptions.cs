@@ -11,7 +11,8 @@ namespace Tmds.LinuxAsync.Transport
     {
         IOQueue,
         Inline,
-        IOThread
+        IOThread,
+        ThreadPool
     }
 
     public class SocketTransportOptions
