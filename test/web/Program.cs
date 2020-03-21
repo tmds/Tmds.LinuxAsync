@@ -34,38 +34,45 @@ namespace web
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseStartup<Startup>();
-                    if (commandLineOptions.SocketEngine == SocketEngineType.IOUringTransport)
+
+                    switch (commandLineOptions.SocketEngine)
                     {
-                        webBuilder.ConfigureServices(serviceCollection =>
-                            serviceCollection.AddIoUringTransport(options =>
+                        case SocketEngineType.IOUringTransport:
+                            webBuilder.ConfigureServices(serviceCollection =>
+                                serviceCollection.AddIoUringTransport(options =>
+                                {
+                                    options.ThreadCount = commandLineOptions.ThreadCount;
+                                    options.ApplicationSchedulingMode = commandLineOptions.ApplicationCodeIsNonBlocking.Value ?
+                                        PipeScheduler.Inline : PipeScheduler.ThreadPool;
+                                }));
+                            break;
+                        case SocketEngineType.LinuxTransport:
+                            webBuilder.UseLinuxTransport(options =>
                             {
                                 options.ThreadCount = commandLineOptions.ThreadCount;
-                                options.ApplicationSchedulingMode = commandLineOptions.ApplicationCodeIsNonBlocking.Value ?
+                                options.DeferSend = commandLineOptions.DeferSends.Value;
+                                options.ApplicationSchedulingMode= commandLineOptions.ApplicationCodeIsNonBlocking.Value ?
                                     PipeScheduler.Inline : PipeScheduler.ThreadPool;
-                            }));
-                    }
-                    else if (commandLineOptions.SocketEngine == SocketEngineType.LinuxTransport)
-                    {
-                        webBuilder.UseLinuxTransport(options =>
-                        {
-                            options.ThreadCount = commandLineOptions.ThreadCount;
-                            options.DeferSend = commandLineOptions.DeferSends.Value;
-                            options.ApplicationSchedulingMode= commandLineOptions.ApplicationCodeIsNonBlocking.Value ?
-                                    PipeScheduler.Inline : PipeScheduler.ThreadPool;
-                        });
-                    }
-                    else
-                    {
-                        webBuilder.UseLinuxAsyncSockets(options =>
+                            });
+                            break;
+                        case SocketEngineType.DefaultTransport:
+                            webBuilder.UseSockets(options =>
                             {
-                                options.DispatchContinuations = commandLineOptions.DispatchContinuations.Value;
-                                options.DeferSends = commandLineOptions.DeferSends.Value;
-                                options.DeferReceives = commandLineOptions.DeferReceives.Value;
-                                options.DontAllocateMemoryForIdleConnections = commandLineOptions.DontAllocateMemoryForIdleConnections.Value;
-                                options.OutputWriterScheduler = commandLineOptions.OutputWriterScheduler;
-                                options.ApplicationCodeIsNonBlocking = commandLineOptions.ApplicationCodeIsNonBlocking.Value;
-                            }
-                        );
+                                options.IOQueueCount = commandLineOptions.ThreadCount;
+                            });
+                            break;
+                        default:
+                            webBuilder.UseLinuxAsyncSockets(options =>
+                                {
+                                    options.DispatchContinuations = commandLineOptions.DispatchContinuations.Value;
+                                    options.DeferSends = commandLineOptions.DeferSends.Value;
+                                    options.DeferReceives = commandLineOptions.DeferReceives.Value;
+                                    options.DontAllocateMemoryForIdleConnections = commandLineOptions.DontAllocateMemoryForIdleConnections.Value;
+                                    options.OutputWriterScheduler = commandLineOptions.OutputWriterScheduler;
+                                    options.ApplicationCodeIsNonBlocking = commandLineOptions.ApplicationCodeIsNonBlocking.Value;
+                                }
+                            );
+                            break;
                     }
                 });
         }
@@ -84,7 +91,8 @@ namespace web
                     return new IOUringAsyncEngine(threadCount: commandLineOptions.ThreadCount,
                         batchOnIOThread);
                 case SocketEngineType.IOUringTransport:
-                case SocketEngineType.LinuxTransport:
+                case SocketEngineType.LinuxTransport: 
+                case SocketEngineType.DefaultTransport:
                     // Create EPollAsyncEngine with threadCount of zero.
                     return new EPollAsyncEngine(threadCount: 0,
                         useLinuxAio: false,
