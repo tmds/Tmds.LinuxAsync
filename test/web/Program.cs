@@ -55,7 +55,7 @@ namespace web
                                     PipeScheduler.Inline : PipeScheduler.ThreadPool;
                             });
                             break;
-                        case SocketEngineType.DefaultSockets:
+                        case SocketEngineType.DefaultTransport:
                             webBuilder.UseSockets(options =>
                             {
                                 options.IOQueueCount = commandLineOptions.ThreadCount;
@@ -92,7 +92,7 @@ namespace web
                         batchOnIOThread);
                 case SocketEngineType.IOUringTransport:
                 case SocketEngineType.LinuxTransport: 
-                case SocketEngineType.DefaultSockets:
+                case SocketEngineType.DefaultTransport:
                     // Create EPollAsyncEngine with threadCount of zero.
                     return new EPollAsyncEngine(threadCount: 0,
                         useLinuxAio: false,
