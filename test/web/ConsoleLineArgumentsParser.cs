@@ -41,8 +41,8 @@ namespace web
         [Option('w', "wait-for-ready", Required = false, Default = true, HelpText = "Don't allocate memory for idle connections")]
         public bool? DontAllocateMemoryForIdleConnections { get; set; }
 
-        [Option('o', "output-writer-scheduler", Required = false, Default = OutputWriterScheduler.IOQueue, HelpText = "IOQueue/Inline/IOThread/ThreadPool")]
-        public OutputWriterScheduler OutputWriterScheduler { get; set; }
+        [Option('o', "output-writer-scheduler", Required = false, Default = OutputScheduler.IOQueue, HelpText = "IOQueue/Inline/IOThread/ThreadPool")]
+        public OutputScheduler OutputScheduler { get; set; }
 
         [Option('i', "inline-app", Required = false, Default = false, HelpText = "Application code is non blocking")]
         public bool? ApplicationCodeIsNonBlocking { get; set; }
