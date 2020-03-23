@@ -6,8 +6,7 @@ using System.Buffers;
 
 namespace Tmds.LinuxAsync.Transport
 {
-
-    public enum OutputWriterScheduler
+    public enum OutputScheduler
     {
         IOQueue,
         Inline,
@@ -37,7 +36,7 @@ namespace Tmds.LinuxAsync.Transport
 
         public bool DontAllocateMemoryForIdleConnections { get; set; } = true;
 
-        public OutputWriterScheduler OutputWriterScheduler { get; set; } = OutputWriterScheduler.IOQueue;
+        public OutputScheduler OutputScheduler { get; set; } = OutputScheduler.IOQueue;
 
 
         /// <summary>

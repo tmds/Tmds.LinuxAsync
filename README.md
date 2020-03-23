@@ -47,24 +47,25 @@ This is a copy of ASP.NET Core [Transport.Sockets](https://github.com/dotnet/asp
 The Transport can be used in ASP.NET Core by calling the `UseLinuxAsyncSockets` `IWebHostBuilder` extension methods.
 
 ```c#
-public enum OutputWriterScheduler
+public enum OutputScheduler
 {
     IOQueue,
     Inline,
-    IOThread
+    IOThread,
+    ThreadPool
 }
 class SocketTransportOptions
 {
   public bool DispatchContinuations { get; set; } = true; // Sets RunContinuationsAsynchronously
   public bool DeferSends { get; set; } = false;           // Sets !PreferSynchronousCompletion for sends
   public bool DeferReceives { get; set; } = false;        // Sets !PreferSynchronousCompletion for receives
-  public bool OutputWriterScheduler { get; set; } = OutputWriterScheduler.IOQueue;
+  public bool OutputScheduler { get; set; } = OutputScheduler.IOQueue;
   public bool ApplicationCodeIsNonBlocking { get; set; } = false;
   public bool DontAllocateMemoryForIdleConnections { get; set; } = true;
 }
 ```
 
-Setting `OutputWriterScheduler` to `IOQueue`/`IOThread` defers write operations to an `IOQueue`/`IOThread`. If more data is written to the `Pipe` before the operation is executed on the `IOQueue`/`IOThread`, it will be part of a single write operation.
+Setting `OutputScheduler` to `IOQueue`/`IOThread`/`ThreadPool` defers write operations to an `IOQueue`/`IOThread`. If more data is written to the `Pipe` before the operation is executed on the `IOQueue`/`IOThread``ThreadPool`, it will be part of a single write operation.
 
 Setting `ApplicationCodeIsNonBlocking` to `true` causes reads from ASP.NET Core to not get deferred to the `ThreadPool`.
 **Note** something in ASP.NET Core still defers the HTTP Handler to run on the `ThreadPool`.

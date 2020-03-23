@@ -46,7 +46,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
                                   bool dispatchContinuations = true,
                                   bool applicationCodeIsNonBlocking = false,
                                   bool dontAllocateMemoryForIdleConnections = true,
-                                  OutputWriterScheduler outputWriterScheduler = OutputWriterScheduler.IOQueue)
+                                  OutputScheduler outputScheduler = OutputScheduler.IOQueue)
         {
             Debug.Assert(socket != null);
             Debug.Assert(memoryPool != null);
@@ -73,12 +73,12 @@ namespace Tmds.LinuxAsync.Transport.Internal
             maxReadBufferSize ??= 0;
             maxWriteBufferSize ??= 0;
 
-            PipeScheduler outputScheduler = outputWriterScheduler switch
+            PipeScheduler outputScheduler = outputScheduler switch
             {
-                OutputWriterScheduler.Inline => PipeScheduler.Inline,
-                OutputWriterScheduler.IOQueue => scheduler,
-                OutputWriterScheduler.IOThread => _socket.IOThreadScheduler,
-                OutputWriterScheduler.ThreadPool => PipeScheduler.ThreadPool,
+                OutputScheduler.Inline => PipeScheduler.Inline,
+                OutputScheduler.IOQueue => scheduler,
+                OutputScheduler.IOThread => _socket.IOThreadScheduler,
+                OutputScheduler.ThreadPool => PipeScheduler.ThreadPool,
                 _ => throw new IndexOutOfRangeException()
             };
 
