@@ -42,7 +42,7 @@ namespace Tmds.LinuxAsync
                 {
                     while (TryQueueTakeFirst(ref tail, out AsyncOperation? op))
                     {
-                        op.CompletionFlags = OperationCompletionFlags.CompletedCanceled;
+                        op.Status = OperationStatus.Cancelled;
                         op.Complete();
                     }
                 }
@@ -70,11 +70,11 @@ namespace Tmds.LinuxAsync
                             // Operation finished, set CompletionFlags.
                             if (result == AsyncExecutionResult.Finished)
                             {
-                                op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
+                                op.Status = OperationStatus.Completed;
                             }
                             else if (result == AsyncExecutionResult.Cancelled)
                             {
-                                Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
+                                Debug.Assert((op.Status & OperationStatus.Cancelled) != 0);
                                 result = AsyncExecutionResult.Finished;
                             }
 
@@ -171,14 +171,14 @@ namespace Tmds.LinuxAsync
 
                 if (finished)
                 {
-                    operation.CompletionFlags = OperationCompletionFlags.CompletedFinishedSync;
+                    operation.Status = OperationStatus.CompletedSync;
                     operation.Complete();
                 }
 
                 return !finished;
             }
 
-            public void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
+            public void TryCancelAndComplete(AsyncOperation operation, OperationStatus status)
             {
                 CancellationRequestResult result;
 
@@ -189,7 +189,7 @@ namespace Tmds.LinuxAsync
                         return;
                     }
 
-                    result = RequestCancellationAsync(operation, flags);
+                    result = RequestCancellationAsync(operation, status);
                     if (result == CancellationRequestResult.Requested)
                     {
                         // TODO: an alternative could be to add the operation to the executionqueue here directly.

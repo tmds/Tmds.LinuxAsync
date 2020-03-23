@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 
 namespace Tmds.LinuxAsync
 {
@@ -18,6 +19,16 @@ namespace Tmds.LinuxAsync
     abstract class AsyncOperation
     {
         sealed class AsyncOperationSentinel : AsyncOperation
+        {
+            public override bool IsReadNotWrite
+                => throw new System.InvalidOperationException();
+            public override void Complete()
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
+                => throw new System.InvalidOperationException();
+        }
+
+        internal sealed class AsyncOperationGate : AsyncOperation
         {
             public override bool IsReadNotWrite
                 => throw new System.InvalidOperationException();
@@ -48,19 +59,24 @@ namespace Tmds.LinuxAsync
         public bool IsExecuting { get; set; }
 
         // Was cancellation requested while the operation is executing.
-        public bool IsCancellationRequested => (CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0;
+        public bool IsCancellationRequested => (Status & OperationStatus.CancellationRequested) != 0;
+
+        private int _status;
 
         // Holds requested completion flags for cancellation, and final completion flags.
-        public OperationCompletionFlags CompletionFlags { get; set; }
+        public OperationStatus Status { get => (OperationStatus)_status; set => _status = (int)value; }
+
+        public OperationStatus CompareExchangeStatus(OperationStatus status, OperationStatus comparand)
+        {
+            return (OperationStatus)Interlocked.CompareExchange(ref _status, (int)status, (int)comparand);
+        }
 
         // Requests the operation to be marked as cancelled.
         // Returns CancellationRequestResult.Cancelled when the operation was cancelled synchronously.
         // Returns CancellationRequestResult.Requested when the operation is marked for async cancellation.
-        public CancellationRequestResult RequestCancellationAsync(OperationCompletionFlags flags)
+        public CancellationRequestResult RequestCancellationAsync(OperationStatus status)
         {
-            Debug.Assert((CompletionFlags & (OperationCompletionFlags.OperationFinished | OperationCompletionFlags.OperationCancelled)) == 0);
-
-            CompletionFlags = OperationCompletionFlags.CompletedCanceled | flags;
+            Status = OperationStatus.Cancelled | OperationStatus.CancellationRequested | status;
             return IsExecuting ? CancellationRequestResult.Requested : CancellationRequestResult.Cancelled;
         }
         // Completes the AsyncOperation.
@@ -88,13 +104,13 @@ namespace Tmds.LinuxAsync
         public abstract AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result);
 
         // Requests operation to be cancelled.
-        public void TryCancelAndComplete(OperationCompletionFlags completionFlags = OperationCompletionFlags.None)
+        public void TryCancelAndComplete(OperationStatus status = OperationStatus.None)
         {
             AsyncContext? context = CurrentAsyncContext;
             // When context is null, the operation completed already.
             if (context != null)
             {
-                context.TryCancelAndComplete(this, completionFlags);
+                context.TryCancelAndComplete(this, status);
             }
         }
 
@@ -102,16 +118,27 @@ namespace Tmds.LinuxAsync
         {
             AsyncContext asyncContext = CurrentAsyncContext!;
             CurrentAsyncContext = null;
-            CompletionFlags = OperationCompletionFlags.None;
 
-            if (IsReadNotWrite)
+            // We don't re-use operations that were cancelled async,
+            // because cancellation is detected via StatusFlags.
+            if ((Status & OperationStatus.CancelledSync) != OperationStatus.Cancelled)
             {
-                asyncContext.ReturnReadOperation(this);
+                Status = OperationStatus.None;
+
+                if (IsReadNotWrite)
+                {
+                    asyncContext.ReturnReadOperation(this);
+                }
+                else
+                {
+                    asyncContext.ReturnWriteOperation(this);
+                }
             }
-            else
-            {
-                asyncContext.ReturnWriteOperation(this);
-            }
+        }
+
+        public OperationStatus VolatileReadStatus()
+        {
+            return (OperationStatus)Volatile.Read(ref _status);
         }
     }
 }

@@ -51,12 +51,20 @@ namespace Tmds.LinuxAsync
             _flowExecutionContext = !unsafeSuppressExecutionContextFlow;
         }
 
-        internal void Complete(OperationCompletionFlags completionFlags)
+        internal void Complete(OperationStatus status)
         {
-            bool cancelled = (completionFlags & OperationCompletionFlags.OperationCancelled) != 0;
+            bool cancelled = (status & OperationStatus.Cancelled) != 0;
+            bool completedAsync = (status & OperationStatus.Sync) == 0;
             if (cancelled)
             {
                 SocketError = SocketError.OperationAborted;
+
+                // We don't re-use operations that were cancelled async,
+                // because cancellation is detected via StatusFlags.
+                if (completedAsync)
+                {
+                    _operation = null;
+                }
             }
 
             // Reset state.
@@ -66,7 +74,6 @@ namespace Tmds.LinuxAsync
             CurrentOperation = System.Net.Sockets.SocketAsyncOperation.None;
 
             // Call OnCompleted only when completed async.
-            bool completedAsync = (completionFlags & OperationCompletionFlags.CompletedSync) == 0;
             if (completedAsync)
             {
                 if (context == null)

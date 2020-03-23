@@ -140,7 +140,7 @@ namespace Tmds.LinuxAsync
                 bool timedOut = !mre.Wait(msTimeout);
                 if (timedOut)
                 {
-                    asyncOperation.TryCancelAndComplete(OperationCompletionFlags.CancelledByTimeout);
+                    asyncOperation.TryCancelAndComplete(OperationStatus.CancelledByTimeout);
                 }
                 mre.Wait();
             }

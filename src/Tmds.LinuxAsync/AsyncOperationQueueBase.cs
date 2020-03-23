@@ -91,12 +91,12 @@ namespace Tmds.LinuxAsync
         // If the operation is not executing, it is removed from the queue and Cancelled is returned.
         // If the operation is executing, it stays on the queue, the operation gets marked as cancellation requested,
         // and Requested is returned.
-        protected CancellationRequestResult RequestCancellationAsync(AsyncOperation operation, OperationCompletionFlags flags)
+        protected CancellationRequestResult RequestCancellationAsync(AsyncOperation operation, OperationStatus status)
         {
             CancellationRequestResult result = CancellationRequestResult.NotFound;
             if (_tail == operation) // We're the last operation
             {
-                result = operation.RequestCancellationAsync(flags);
+                result = operation.RequestCancellationAsync(status);
                 if (result == CancellationRequestResult.Cancelled)
                 {
                     if (operation.Next == operation) // We're the only operation.
@@ -123,7 +123,7 @@ namespace Tmds.LinuxAsync
                 {
                     if (nextOperation == operation)
                     {
-                        result = operation.RequestCancellationAsync(flags);
+                        result = operation.RequestCancellationAsync(status);
                         if (result == CancellationRequestResult.Cancelled)
                         {
                             nextOperation = operation.Next!;

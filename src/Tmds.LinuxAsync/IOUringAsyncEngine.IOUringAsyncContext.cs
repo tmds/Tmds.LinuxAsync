@@ -76,7 +76,7 @@ namespace Tmds.LinuxAsync
                 {
                     operation.Next = null;
 
-                    CancellationRequestResult result = operation.RequestCancellationAsync(OperationCompletionFlags.CompletedCanceledSync);
+                    CancellationRequestResult result = operation.RequestCancellationAsync(OperationStatus.CancelledSync);
                     Debug.Assert(result == CancellationRequestResult.Cancelled);
                     if (result == CancellationRequestResult.Cancelled)
                     {
@@ -103,15 +103,15 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            internal override void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
+            internal override void TryCancelAndComplete(AsyncOperation operation, OperationStatus status)
             {
                 if (operation.IsReadNotWrite)
                 {
-                    _readQueue.TryCancelAndComplete(operation, flags);
+                    _readQueue.TryCancelAndComplete(operation, status);
                 }
                 else
                 {
-                    _writeQueue.TryCancelAndComplete(operation, flags);
+                    _writeQueue.TryCancelAndComplete(operation, status);
                 }
             }
         }
