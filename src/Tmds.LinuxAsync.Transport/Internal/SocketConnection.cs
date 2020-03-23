@@ -78,6 +78,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
                 OutputWriterScheduler.Inline => PipeScheduler.Inline,
                 OutputWriterScheduler.IOQueue => scheduler,
                 OutputWriterScheduler.IOThread => _socket.IOThreadScheduler,
+                OutputWriterScheduler.ThreadPool => PipeScheduler.ThreadPool,
                 _ => throw new IndexOutOfRangeException()
             };
 
