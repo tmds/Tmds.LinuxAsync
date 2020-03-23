@@ -73,7 +73,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
             maxReadBufferSize ??= 0;
             maxWriteBufferSize ??= 0;
 
-            PipeScheduler outputScheduler = outputScheduler switch
+            PipeScheduler pipeScheduler = outputScheduler switch
             {
                 OutputScheduler.Inline => PipeScheduler.Inline,
                 OutputScheduler.IOQueue => scheduler,
@@ -84,7 +84,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
 
             var appScheduler = applicationCodeIsNonBlocking ? PipeScheduler.Inline : PipeScheduler.ThreadPool;
             var inputOptions = new PipeOptions(MemoryPool, appScheduler, scheduler, maxReadBufferSize.Value, maxReadBufferSize.Value / 2, useSynchronizationContext: false);
-            var outputOptions = new PipeOptions(MemoryPool, outputScheduler, appScheduler, maxWriteBufferSize.Value, maxWriteBufferSize.Value / 2, useSynchronizationContext: false);
+            var outputOptions = new PipeOptions(MemoryPool, pipeScheduler, appScheduler, maxWriteBufferSize.Value, maxWriteBufferSize.Value / 2, useSynchronizationContext: false);
 
             var pair = DuplexPipe.CreateConnectionPair(inputOptions, outputOptions);
 
