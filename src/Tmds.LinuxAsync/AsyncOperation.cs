@@ -18,27 +18,10 @@ namespace Tmds.LinuxAsync
     // * Handle signalling completion to the user.
     abstract class AsyncOperation
     {
-        sealed class AsyncOperationSentinel : AsyncOperation
+        protected AsyncOperation()
         {
-            public override bool IsReadNotWrite
-                => throw new System.InvalidOperationException();
-            public override void Complete()
-                => throw new System.InvalidOperationException();
-            public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
-                => throw new System.InvalidOperationException();
+            Next = this;
         }
-
-        internal sealed class AsyncOperationGate : AsyncOperation
-        {
-            public override bool IsReadNotWrite
-                => throw new System.InvalidOperationException();
-            public override void Complete()
-                => throw new System.InvalidOperationException();
-            public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
-                => throw new System.InvalidOperationException();
-        }
-
-        public static readonly AsyncOperation DisposedSentinel = new AsyncOperationSentinel();
 
         // AsyncContext on whith the operation is performed.
         // This value gets set by AsyncContext, and cleared by the AsyncOperation.
@@ -50,35 +33,21 @@ namespace Tmds.LinuxAsync
         // Can be used to create a queue of AsyncOperations.
         public AsyncOperation? Next;
 
-
-
-        // Track state of the AsyncOperation while it is executing to support cancellation.
-        // Thread safety is the caller's responsibility.
-
-        // Is the operation being executed.
-        public bool IsExecuting { get; set; }
+        private int _status;
+        // Holds requested completion flags for cancellation, and final completion flags.
+        public OperationStatus Status { get => (OperationStatus)_status; set => _status = (int)value; }
 
         // Was cancellation requested while the operation is executing.
         public bool IsCancellationRequested => (Status & OperationStatus.CancellationRequested) != 0;
 
-        private int _status;
-
-        // Holds requested completion flags for cancellation, and final completion flags.
-        public OperationStatus Status { get => (OperationStatus)_status; set => _status = (int)value; }
+        public bool VolatileReadIsCancellationRequested()
+            => ((OperationStatus)Volatile.Read(ref _status) & OperationStatus.CancellationRequested) != 0;
 
         public OperationStatus CompareExchangeStatus(OperationStatus status, OperationStatus comparand)
         {
             return (OperationStatus)Interlocked.CompareExchange(ref _status, (int)status, (int)comparand);
         }
 
-        // Requests the operation to be marked as cancelled.
-        // Returns CancellationRequestResult.Cancelled when the operation was cancelled synchronously.
-        // Returns CancellationRequestResult.Requested when the operation is marked for async cancellation.
-        public CancellationRequestResult RequestCancellationAsync(OperationStatus status)
-        {
-            Status = OperationStatus.Cancelled | OperationStatus.CancellationRequested | status;
-            return IsExecuting ? CancellationRequestResult.Requested : CancellationRequestResult.Cancelled;
-        }
         // Completes the AsyncOperation.
         public abstract void Complete();
 
@@ -134,11 +103,6 @@ namespace Tmds.LinuxAsync
                     asyncContext.ReturnWriteOperation(this);
                 }
             }
-        }
-
-        public OperationStatus VolatileReadStatus()
-        {
-            return (OperationStatus)Volatile.Read(ref _status);
         }
     }
 }

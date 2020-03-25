@@ -73,8 +73,6 @@ namespace Tmds.LinuxAsync
                 }
                 catch
                 {
-                    operation.Next = null;
-
                     operation.Status = OperationStatus.CancelledSync;
                     operation.Complete();
 

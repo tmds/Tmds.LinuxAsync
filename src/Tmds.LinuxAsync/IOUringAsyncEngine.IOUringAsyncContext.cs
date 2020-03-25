@@ -74,14 +74,8 @@ namespace Tmds.LinuxAsync
                 }
                 catch
                 {
-                    operation.Next = null;
-
-                    CancellationRequestResult result = operation.RequestCancellationAsync(OperationStatus.CancelledSync);
-                    Debug.Assert(result == CancellationRequestResult.Cancelled);
-                    if (result == CancellationRequestResult.Cancelled)
-                    {
-                        operation.Complete();
-                    }
+                    operation.Status = OperationStatus.CancelledSync;
+                    operation.Complete();
 
                     throw;
                 }

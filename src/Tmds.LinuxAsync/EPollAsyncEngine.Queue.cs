@@ -19,24 +19,41 @@ namespace Tmds.LinuxAsync
 
             public bool Dispose()
             {
-                AsyncOperation? queue = Interlocked.Exchange(ref _tail, AsyncOperation.DisposedSentinel);
+                AsyncOperation? queue = Interlocked.Exchange(ref _queue, DisposedSentinel);
 
                 // already disposed
-                if (queue == AsyncOperation.DisposedSentinel)
+                if (queue == DisposedSentinel)
                 {
                     return false;
                 }
 
                 if (queue != null)
                 {
-                    AsyncOperation? gate = queue as AsyncOperation.AsyncOperationGate;
+                    AsyncOperation? gate = queue as AsyncOperationGate;
                     if (gate != null)
                     {
                         // Synchronize with Enqueue.
                         lock (gate)
                         { }
 
-                        throw new NotImplementedException(); // TODO
+                        AsyncOperation? last = gate.Next;
+                        if (last != null)
+                        {
+                            AsyncOperation op = gate.Next!;
+                            do
+                            {
+                                AsyncOperation next = op.Next!;
+
+                                op.Next = op; // point to self.
+                                TryCancelAndComplete(op, OperationStatus.None, wait: true);
+
+                                if (op == last)
+                                {
+                                    break;
+                                }
+                                op = next;
+                            } while (true);
+                        }
                     }
                     else
                     {
@@ -97,38 +114,6 @@ namespace Tmds.LinuxAsync
                 return next;
             }
 
-            private AsyncOperation? DequeueFirstAndGetNext(AsyncOperation first)
-            {
-                AsyncOperation? previous = Interlocked.CompareExchange(ref _tail, null, first);
-                if (object.ReferenceEquals(previous, first) || object.ReferenceEquals(previous, AsyncOperation.DisposedSentinel))
-                {
-                    return null;
-                }
-                AsyncOperation? gate = previous as AsyncOperation.AsyncOperationGate;
-                if (gate == null)
-                {
-                    ThrowHelper.ThrowInvalidOperationException();
-                }
-                lock (gate)
-                {
-                    if (gate.Next == first) // single element
-                    {
-                        Debug.Assert(first.Next == first);
-                        gate.Next = null;
-                        return null;
-                    }
-                    else
-                    {
-                        AsyncOperation? tail = gate.Next;
-                        Debug.Assert(tail != null);
-                        Debug.Assert(tail.Next == first);
-                        tail.Next = first.Next;
-                        first.Next = null;
-                        return tail.Next;
-                    }
-                }
-            }
-
             public void ExecuteQueued(bool triggeredByPoll, AsyncOperation? op = null)
             {
                 if (triggeredByPoll)
@@ -187,7 +172,7 @@ namespace Tmds.LinuxAsync
 
                 if (!batchOnPollThread && preferSync)
                 {
-                    if (Volatile.Read(ref _tail) == null)
+                    if (Volatile.Read(ref _queue) == null)
                     {
                         eventCounterSnapshot = Volatile.Read(ref _eventCounter);
                         bool finished = operation.TryExecuteSync();
@@ -252,134 +237,15 @@ namespace Tmds.LinuxAsync
                     RemoveQueued(operation);
                     operation.Complete();
                 }
-                if (previous == OperationStatus.Executing && wait)
+                else if (previous == OperationStatus.Executing && wait)
                 {
                     SpinWait spin = new SpinWait();
-                    while ((operation.VolatileReadStatus() & OperationStatus.CancellationRequested) != 0)
+                    while (operation.VolatileReadIsCancellationRequested())
                     {
                         spin.SpinOnce();
                     }
                 }
             }
-
-            private void RemoveQueued(AsyncOperation operation)
-            {
-                AsyncOperation? previous = Interlocked.CompareExchange(ref _tail, null, operation);
-                if (object.ReferenceEquals(previous, operation))
-                {
-                    return;
-                }
-                if (previous is AsyncOperation.AsyncOperationGate gate)
-                {
-                    lock (gate)
-                    {
-                        if (gate.Next == operation && operation.Next == operation) // single element
-                        {
-                            gate.Next = null;
-                            return;
-                        }
-                        else
-                        {
-                            throw new NotImplementedException(); // TODO
-                        }
-                    }
-                }
-            }
-
-            private AsyncOperation? QueueGetFirst()
-            {
-                AsyncOperation? op = Volatile.Read(ref _tail);
-                if (op is null || object.ReferenceEquals(op, AsyncOperation.DisposedSentinel))
-                {
-                    return null;
-                }
-                if (op.GetType() == typeof(AsyncOperation.AsyncOperationGate))
-                {
-                    AsyncOperation gate = op;
-                    lock (gate)
-                    {
-                        op = gate.Next?.Next;
-                    }
-                }
-                return op;
-            }
-
-            private bool EnqueueAndGetIsFirst(AsyncOperation operation)
-            {
-                operation.Next = operation;
-                operation.Status = OperationStatus.Queued;
-                AsyncOperation? previousTail = Interlocked.CompareExchange(ref _tail, operation, null);
-                if (previousTail is null)
-                {
-                    return true;
-                }
-
-                return EnqueueSlow(operation, previousTail);
-            }
-
-            private bool EnqueueSlow(AsyncOperation operation, AsyncOperation? previousTail)
-            {
-                SpinWait spin = new SpinWait();
-                while (true)
-                {
-                    if (object.ReferenceEquals(previousTail, AsyncOperation.DisposedSentinel))
-                    {
-                        operation.Next = null;
-                        operation.Status = OperationStatus.None;
-                        ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
-                    }
-                    else
-                    {
-                        AsyncOperation.AsyncOperationGate? gate = previousTail as AsyncOperation.AsyncOperationGate;
-
-                        // Install the gate.
-                        if (gate == null)
-                        {
-                            AsyncOperation singleOperation = previousTail!;
-                            gate = new AsyncOperation.AsyncOperationGate();
-                            gate.Next = singleOperation;
-                            previousTail = Interlocked.CompareExchange(ref _tail, gate, singleOperation);
-                            if (previousTail != singleOperation)
-                            {
-                                if (previousTail is null)
-                                {
-                                    previousTail = Interlocked.CompareExchange(ref _tail, operation, null);
-                                    if (previousTail is null)
-                                    {
-                                        return true;
-                                    }
-                                }
-                                spin.SpinOnce();
-                                continue;
-                            }
-                        }
-
-                        lock (gate)
-                        {
-                            if (object.ReferenceEquals(_tail, AsyncOperation.DisposedSentinel))
-                            {
-                                continue;
-                            }
-                            // skip gate
-                            previousTail = gate.Next;
-
-                            if (previousTail == null)
-                            {
-                                gate.Next = operation;
-                                return true;
-                            }
-                            else
-                            {
-                                operation.Next = previousTail.Next;
-                                previousTail.Next = operation;
-                                gate.Next = operation;
-                                return false;
-                            }
-                        }
-                    }
-                }
-            }
-
         }
     }
 }
