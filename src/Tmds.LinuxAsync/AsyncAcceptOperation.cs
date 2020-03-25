@@ -46,7 +46,6 @@ namespace Tmds.LinuxAsync
             else
             {
                 _core.SetResult(acceptedSocket, socketError, status);
-                AcceptedSocket = null;
             }
         }
 

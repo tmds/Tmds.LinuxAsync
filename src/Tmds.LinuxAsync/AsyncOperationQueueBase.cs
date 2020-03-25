@@ -13,16 +13,16 @@ namespace Tmds.LinuxAsync
         //
         //    * null:                  the queue is empty.
         //    * DisposedSentinel:      the queue was disposed.
+        //    * x:                     the queue contains a single operation x.
         //    * is AsyncOperationGate: the queue contained several elements at some point.
         //   
-        //              _queue is not an operation. It is used with lock to synchronize
+        //              _queue is not an operation. It is used to synchronize
         //              access to the list of operations.
         //
         //              _queue = gate -> last -> first -> second -> ...
         //                                 ^                         |
         //                                 +-------------------------+
         //
-        //    * otherwise:              the queue contains a single operation.
         protected AsyncOperation? _queue;
 
         protected void RemoveQueued(AsyncOperation operation)
@@ -44,24 +44,24 @@ namespace Tmds.LinuxAsync
                         }
                         else
                         {
-                            // Find newTail
-                            AsyncOperation newTail = operation.Next!;
+                            // Find newLast
+                            AsyncOperation newLast = operation.Next!;
                             {
-                                AsyncOperation newTailNext = newTail.Next!;
-                                while (newTailNext != operation)
+                                AsyncOperation newLastNext = newLast.Next!;
+                                while (newLastNext != operation)
                                 {
-                                    newTail = newTailNext;
+                                    newLast = newLastNext;
                                 }
                             }
-                            newTail.Next = operation.Next; // tail point to first
-                            queue.Next = newTail;           // gate points to tail
+                            newLast.Next = operation.Next; // last point to first
+                            queue.Next = newLast;          // gate points to last
                             operation.Next = operation;    // point to self
                         }
                     }
-                    AsyncOperation? tail = queue.Next;
-                    if (tail != null)
+                    AsyncOperation? last = queue.Next;
+                    if (last != null)
                     {
-                        AsyncOperation it = tail;
+                        AsyncOperation it = last;
                         do
                         {
                             AsyncOperation next = it.Next!;
@@ -72,7 +72,7 @@ namespace Tmds.LinuxAsync
                                 return;
                             }
                             it = next;
-                        } while (it != tail);
+                        } while (it != last);
                     }
                 }
             }
@@ -147,6 +147,7 @@ namespace Tmds.LinuxAsync
                             spin.SpinOnce();
                             continue;
                         }
+                        queue = gate;
                     }
 
                     lock (queue)
@@ -155,18 +156,18 @@ namespace Tmds.LinuxAsync
                         {
                             continue;
                         }
-                        AsyncOperation? tail = queue.Next;
 
-                        if (tail == null) // empty queue
+                        AsyncOperation? last = queue.Next;
+                        if (last == null) // empty queue
                         {
                             queue.Next = operation;
                             return true;
                         }
                         else
                         {
-                            operation.Next = tail.Next; // new tail points to first
-                            tail.Next = operation;      // enqueue: previous tail points to new tail
-                            queue.Next = operation;     // gate points to new tail
+                            queue.Next = operation;     // gate points to new last
+                            operation.Next = last.Next; // new last points to first
+                            last.Next = operation;      // previous last points to new last
                             return false;
                         }
                     }
@@ -194,12 +195,12 @@ namespace Tmds.LinuxAsync
                 }
                 else
                 {
-                    AsyncOperation? tail = queue.Next;
-                    Debug.Assert(tail != null); // there is an element
-                    Debug.Assert(tail.Next == first); // we're first
-                    tail.Next = first.Next; // skip operation
+                    AsyncOperation? last = queue.Next;
+                    Debug.Assert(last != null); // there is an element
+                    Debug.Assert(last.Next == first); // we're first
+                    last.Next = first.Next; // skip operation
                     first.Next = first;     // point to self
-                    return tail.Next;
+                    return last.Next;
                 }
             }
         }

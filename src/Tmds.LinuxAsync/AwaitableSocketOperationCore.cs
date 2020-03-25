@@ -49,9 +49,9 @@ namespace Tmds.LinuxAsync
 
         public void SetResult(T result, SocketError socketError, OperationStatus status)
         {
-            _vts.SetResult(result);
             _socketError = socketError;
             _status = status;
+            _vts.SetResult(result);
 
             ManualResetEventSlim? mre = Interlocked.Exchange(ref _mre, s_completedSentinel);
             // This ManualResetEventSlim is used to wait until the operation completed.

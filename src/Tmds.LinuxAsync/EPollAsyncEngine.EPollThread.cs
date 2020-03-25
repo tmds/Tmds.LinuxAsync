@@ -297,14 +297,13 @@ namespace Tmds.LinuxAsync
             {
                 lock (_asyncContexts)
                 {
-                    if (_asyncContexts.Count > 0)
-                    {
-                        throw new InvalidOperationException("There are undisposed AsyncContexts.");
-                    }
-
                     if (_disposed)
                     {
                         return;
+                    }
+                    if (_asyncContexts.Count > 0)
+                    {
+                        throw new InvalidOperationException("There are undisposed AsyncContexts.");
                     }
                     _disposed = true;
                 }
