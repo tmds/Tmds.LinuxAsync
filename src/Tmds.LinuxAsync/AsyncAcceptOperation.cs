@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks.Sources;
+using static Tmds.Linux.LibC;
 
 namespace Tmds.LinuxAsync
 {
@@ -170,6 +171,12 @@ namespace Tmds.LinuxAsync
 
         private AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
         {
+            if (asyncResult.Errno == ECANCELED)
+            {
+                SocketError = SocketError.OperationAborted;
+                return AsyncExecutionResult.Cancelled;
+            }
+
             // poll says we're ready
             bool finished = TryExecuteSync();
             return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
