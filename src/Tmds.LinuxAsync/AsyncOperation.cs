@@ -52,8 +52,11 @@ namespace Tmds.LinuxAsync
         public abstract void Complete();
 
         // Try to execute the operation. Returns true when done, false it should be tried again.
-        public bool TryExecuteSync()
-            => TryExecute(triggeredByPoll: false, cancellationRequested: false, asyncOnly: false, executionQueue: null, callback: null, state: null, data: 0, AsyncOperationResult.NoResult) == AsyncExecutionResult.Finished;
+        public abstract bool TryExecuteSync();
+
+        public abstract AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data);
+
+        public abstract AsyncExecutionResult HandleAsyncResultAndContinue(AsyncOperationResult result, AsyncExecutionQueue executionQueue, AsyncExecutionCallback? callback, object? state, int data);
 
         // Continues execution of this operation.
         // When the operation is finished, AsyncExecutionResult.Finished is returned.
@@ -70,7 +73,7 @@ namespace Tmds.LinuxAsync
         // When cancellationRequested is set, the operation must finish with
         //   AsyncExecutionResult.Finished when the operation completed using 'result'; and
         //   AsyncOperationResult.Cancelled otherwise.
-        public abstract AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result);
+        // public abstract AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result);
 
         // Requests operation to be cancelled.
         public void TryCancelAndComplete(OperationStatus status = OperationStatus.None)

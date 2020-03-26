@@ -69,12 +69,10 @@ namespace Tmds.LinuxAsync
             {
                 AsyncOperation? op = _executingOperation!;
 
-                bool cancellationRequested = op.IsCancellationRequested;
-
-                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, cancellationRequested, asyncOnly: false, _thread.ExecutionQueue,
+                AsyncExecutionResult result = op.HandleAsyncResultAndContinue(aResult, _thread.ExecutionQueue!,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).HandleAsyncResult(aResult)
-                                                    , state: this, data: 0, aResult);
+                                                    , state: this, data: 0);
 
                 if (result == AsyncExecutionResult.Executing)
                 {
@@ -150,10 +148,10 @@ namespace Tmds.LinuxAsync
                         op = QueueGetFirst();
                     }
 
-                    AsyncExecutionResult result = op.TryExecute(triggeredByPoll, cancellationRequested: false, asyncOnly: false, _thread.ExecutionQueue,
+                    AsyncExecutionResult result = op.TryExecuteAsync(triggeredByPoll, _thread.ExecutionQueue,
                                                         (AsyncOperationResult aResult, object? state, int data)
                                                             => ((Queue)state!).HandleAsyncResult(aResult)
-                                                        , state: this, data: 0, AsyncOperationResult.NoResult);
+                                                        , state: this, data: 0);
 
                     if (result == AsyncExecutionResult.Executing)
                     {

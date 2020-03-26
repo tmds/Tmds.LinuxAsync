@@ -116,59 +116,85 @@ namespace Tmds.LinuxAsync
         {
             Socket = socket;
             EndPoint = endPoint;
+
+            if (endPoint.GetType() != typeof(IPEndPoint))
+            {
+                throw new NotSupportedException();
+            }
         }
 
         public override bool IsReadNotWrite => false;
 
-        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        public override bool TryExecuteSync()
         {
             Socket socket = Socket!;
-            IPEndPoint? ipEndPoint = EndPoint as IPEndPoint;
-
-            if (ipEndPoint == null)
+            IPEndPoint ipEndPoint = (IPEndPoint)EndPoint!;
+            SocketError socketError = SocketPal.Connect(socket.SafeHandle, ipEndPoint);
+            if (socketError == SocketError.InProgress)
             {
-                ThrowHelper.ThrowInvalidOperationException();
+                return false;
             }
+            SocketError = socketError;
+            return true;
+        }
 
-            // When there is a pollable executionQueue, use it to poll, and then try the operation.
-            bool hasPollableExecutionQueue = executionQueue?.SupportsPolling == true;
-            bool trySync = !hasPollableExecutionQueue && !asyncOnly;
-            if (trySync || asyncResult.HasResult)
+        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            if (executionQueue != null && executionQueue.SupportsPolling == true)
             {
-                SocketError socketError;
-                if (!_connectCalled)
-                {
-                    socketError = SocketPal.Connect(socket.SafeHandle, ipEndPoint);
-                    _connectCalled = true;
-                }
-                else
-                {
-                    // TODO: read SOL_SOCKET, SO_ERROR to get errorcode...
-                    socketError = SocketError.Success;
-                }
-                if (socketError != SocketError.InProgress)
-                {
-                    SocketError = socketError;
-                    return AsyncExecutionResult.Finished;
-                }
-            }
-
-            if (isCancellationRequested)
-            {
-                SocketError = SocketError.OperationAborted;
-                return AsyncExecutionResult.Cancelled;
-            }
-
-            // poll
-            if (hasPollableExecutionQueue)
-            {
+                Socket socket = Socket!;
                 executionQueue!.AddPollOut(socket.SafeHandle, callback!, state, data);
                 return AsyncExecutionResult.Executing;
             }
             else
             {
+                if (!_connectCalled)
+                {
+                    bool finished = TryExecuteSync();
+                    return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
+                }
+                else
+                {
+                    if (triggeredByPoll)
+                    {
+                        // TODO: read SOL_SOCKET, SO_ERROR to get errorcode...
+                        SocketError = SocketError.Success;
+                        return AsyncExecutionResult.Finished;
+                    }
+                    return AsyncExecutionResult.WaitForPoll;
+                }
+            }
+        }
+
+        public override AsyncExecutionResult HandleAsyncResultAndContinue(AsyncOperationResult asyncResult, AsyncExecutionQueue executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            AsyncExecutionResult result = HandleAsyncResult(asyncResult);
+
+            if (result == AsyncExecutionResult.Finished)
+            {
+                return AsyncExecutionResult.Finished;
+            }
+
+            if (IsCancellationRequested)
+            {
+                SocketError = SocketError.OperationAborted;
+                return AsyncExecutionResult.Cancelled;
+            }
+
+            if (result == AsyncExecutionResult.WaitForPoll && executionQueue?.SupportsPolling != true)
+            {
                 return AsyncExecutionResult.WaitForPoll;
             }
+
+            return TryExecuteAsync(triggeredByPoll: false, executionQueue, callback, state, data);
+        }
+
+        private AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
+        {
+            // poll says we're ready
+            // TODO: read SOL_SOCKET, SO_ERROR to get errorcode...
+            SocketError = SocketError.Success;
+            return AsyncExecutionResult.Finished;
         }
 
         protected void ResetOperationState()

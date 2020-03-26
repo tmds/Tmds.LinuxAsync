@@ -126,91 +126,95 @@ namespace Tmds.LinuxAsync
 
         public override bool IsReadNotWrite => true;
 
-        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        public override bool TryExecuteSync()
         {
-            SocketError socketError = SocketError.SocketError;
-            int bytesTransferred = -1;
-            AsyncExecutionResult result = AsyncExecutionResult.Executing;
-            if (asyncResult.HasResult)
+            Socket socket = Socket!;
+            (SocketError socketError, int bytesTransferred) = SocketPal.Recv(socket.SafeHandle, MemoryBuffer);
+            BytesTransferred = bytesTransferred;
+            if (socketError == SocketError.WouldBlock)
             {
-                if (asyncResult.IsError)
+                return false;
+            }
+            SocketError = socketError;
+            return true;
+        }
+
+        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            Memory<byte> memory = MemoryBuffer;
+            bool isPollingReadable = memory.Length == 0; // A zero-byte read is a poll.
+            if (executionQueue != null && (!isPollingReadable || executionQueue.SupportsPolling == true))
+            {
+                Socket socket = Socket!;
+                executionQueue.AddRead(socket.SafeHandle, MemoryBuffer, callback!, state, data);
+                return AsyncExecutionResult.Executing;
+            }
+            else
+            {
+                if (triggeredByPoll && isPollingReadable)
                 {
-                    if (asyncResult.Errno == EINTR)
-                    {
-                        result = AsyncExecutionResult.Executing;
-                    }
-                    else if (asyncResult.Errno == EAGAIN)
-                    {
-                        result = AsyncExecutionResult.WaitForPoll;
-                    }
-                    else
-                    {
-                        bytesTransferred = 0;
-                        socketError = SocketPal.GetSocketErrorForErrno(asyncResult.Errno);
-                        result = AsyncExecutionResult.Finished;
-                    }
+                    // No need to make a syscall, poll told us we're readable.
+                    SocketError = SocketError.Success;
+                    BytesTransferred = 0;
+                    return AsyncExecutionResult.Finished;
                 }
-                else
-                {
-                    bytesTransferred = asyncResult.IntValue;
-                    socketError = SocketError.Success;
-                    result = AsyncExecutionResult.Finished;
-                }
+                bool finished = TryExecuteSync();
+                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
+            }
+        }
+
+        public override AsyncExecutionResult HandleAsyncResultAndContinue(AsyncOperationResult asyncResult, AsyncExecutionQueue executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            AsyncExecutionResult result = HandleAsyncResult(asyncResult);
+
+            if (result == AsyncExecutionResult.Finished)
+            {
+                return AsyncExecutionResult.Finished;
             }
 
-            if (isCancellationRequested && result != AsyncExecutionResult.Finished)
+            if (IsCancellationRequested)
             {
                 SocketError = SocketError.OperationAborted;
                 return AsyncExecutionResult.Cancelled;
             }
 
-            // When there is a pollable executionQueue, use it to poll, and then try the operation.
-            if (result == AsyncExecutionResult.Executing ||
-                (result == AsyncExecutionResult.WaitForPoll && executionQueue?.SupportsPolling == true))
+            if (result == AsyncExecutionResult.WaitForPoll && executionQueue?.SupportsPolling != true)
             {
-                Memory<byte> memory = MemoryBuffer;
-                bool isPollingReadable = memory.Length == 0; // A zero-byte read is a poll.
-                if (triggeredByPoll && isPollingReadable)
+                return AsyncExecutionResult.WaitForPoll;
+            }
+
+            return TryExecuteAsync(triggeredByPoll: false, executionQueue, callback, state, data);
+        }
+
+        private AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
+        {
+            if (asyncResult.IsError)
+            {
+                if (asyncResult.Errno == EINTR)
                 {
-                    // No need to make a syscall, poll told us we're readable.
-                    (socketError, bytesTransferred) = (SocketError.Success, 0);
-                    result = AsyncExecutionResult.Finished;
+                    return AsyncExecutionResult.Executing;
+                }
+                else if (asyncResult.Errno == ECANCELED)
+                {
+                    SocketError = SocketError.OperationAborted;
+                    return AsyncExecutionResult.Cancelled;
+                }
+                else if (asyncResult.Errno == EAGAIN)
+                {
+                    return AsyncExecutionResult.WaitForPoll;
                 }
                 else
                 {
-                    Socket socket = Socket!;
-
-                    // Using Linux AIO executionQueue, we can't check when there is no
-                    // data available. Instead of return value EAGAIN, a 0-byte read returns '0'.
-                    if (executionQueue != null &&
-                        (!isPollingReadable || executionQueue.SupportsPolling)) // Don't use Linux AIO for 0-byte reads.
-                    {
-                        executionQueue.AddRead(socket.SafeHandle, memory, callback!, state, data);
-                        result = AsyncExecutionResult.Executing;
-                    }
-                    else if (result == AsyncExecutionResult.Executing)
-                    {
-                        if (asyncOnly)
-                        {
-                            result = AsyncExecutionResult.WaitForPoll;
-                        }
-                        else
-                        {
-                            (socketError, bytesTransferred) = SocketPal.Recv(socket.SafeHandle, memory);
-                            result = socketError == SocketError.WouldBlock ? AsyncExecutionResult.WaitForPoll : AsyncExecutionResult.Finished;
-                        }
-                    }
+                    SocketError = SocketPal.GetSocketErrorForErrno(asyncResult.Errno);
+                    return AsyncExecutionResult.Finished;
                 }
             }
-
-            if (result == AsyncExecutionResult.Finished)
+            else
             {
-                Debug.Assert(bytesTransferred != -1);
-                BytesTransferred = bytesTransferred;
-                SocketError = socketError;
+                BytesTransferred = asyncResult.IntValue;
+                SocketError = SocketError.Success;
+                return AsyncExecutionResult.Finished;
             }
-
-            return result;
         }
 
         protected void ResetOperationState()

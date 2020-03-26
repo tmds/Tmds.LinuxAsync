@@ -112,6 +112,7 @@ namespace Tmds.LinuxAsync
         private Memory<byte> MemoryBuffer;
         private IList<ArraySegment<byte>>? BufferList;
         private int _bufferIndex;
+        private int _bufferOffset;
         protected SocketError SocketError;
         protected int BytesTransferred;
 
@@ -124,131 +125,201 @@ namespace Tmds.LinuxAsync
 
         public override bool IsReadNotWrite => false;
 
-        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        public override bool TryExecuteSync()
         {
             IList<ArraySegment<byte>>? bufferList = BufferList;
 
             if (bufferList == null)
             {
-                return SendSingleBuffer(MemoryBuffer, isCancellationRequested, asyncOnly, executionQueue, callback, state, data, asyncResult);
+                return TryExecuteSingleBufferSync(MemoryBuffer);
             }
             else
             {
-                return SendMultipleBuffers(bufferList, isCancellationRequested, asyncOnly, executionQueue, callback, state, data, asyncResult);
+                return TryExecuteMultipleBuffersSync(bufferList);
             }
         }
 
-        private unsafe AsyncExecutionResult SendMultipleBuffers(IList<ArraySegment<byte>> buffers, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        private bool TryExecuteSingleBufferSync(Memory<byte> memory)
         {
-            // TODO: really support multi-buffer sends...
+            Socket socket = Socket!;
+            (SocketError socketError, int bytesTransferred) = SendMemory(socket, memory);
+            BytesTransferred += bytesTransferred;
+            if (socketError == SocketError.WouldBlock)
+            {
+                return false;
+            }
+            SocketError = socketError;
+            return true;
+        }
+
+        private static (SocketError socketError, int bytesTransferred) SendMemory(Socket socket, Memory<byte> memory)
+        {
+            int bytesTransferredTotal = 0;
+            while (true)
+            {
+                Memory<byte> remaining = memory.Slice(bytesTransferredTotal);
+                (SocketError socketError, int bytesTransferred) = SocketPal.Send(socket.SafeHandle, remaining);
+                bytesTransferredTotal += bytesTransferred;
+                if (socketError == SocketError.Success)
+                {
+                    if (bytesTransferredTotal != memory.Length && bytesTransferred != 0)
+                    {
+                        continue;
+                    }
+                }
+                return (socketError, bytesTransferredTotal);
+            }
+        }
+
+        private bool TryExecuteMultipleBuffersSync(IList<ArraySegment<byte>> buffers)
+        {
+            Socket socket = Socket!;
             for (; _bufferIndex < buffers.Count; _bufferIndex++)
             {
-                AsyncExecutionResult bufferSendResult = SendSingleBuffer(buffers[_bufferIndex], isCancellationRequested, asyncOnly, executionQueue, callback, state, data, asyncResult);
-                if (bufferSendResult == AsyncExecutionResult.WaitForPoll || bufferSendResult == AsyncExecutionResult.Executing)
+                Memory<byte> memory = buffers[_bufferIndex].Slice(_bufferOffset);
+                (SocketError socketError, int bytesTransferred) = SendMemory(socket, memory);
+                _bufferOffset += bytesTransferred;
+                BytesTransferred += bytesTransferred;
+                if (socketError == SocketError.WouldBlock)
                 {
-                    return bufferSendResult;
+                    return false;
                 }
-                if (SocketError != SocketError.Success)
+                else if (socketError == SocketError.Success && bytesTransferred == memory.Length)
                 {
-                    break;
-                }
-                BytesTransferred = 0; // TODO... not really correct
-            }
-            return AsyncExecutionResult.Finished;
-        }
-
-        private AsyncExecutionResult SendSingleBuffer(Memory<byte> memory, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
-        {
-            SocketError socketError = SocketError.SocketError;
-            AsyncExecutionResult result = AsyncExecutionResult.Executing;
-            if (asyncResult.HasResult)
-            {
-                if (asyncResult.IsError)
-                {
-                    if (asyncResult.Errno == EINTR)
-                    {
-                        result = AsyncExecutionResult.Executing;
-                    }
-                    else if (asyncResult.Errno == EAGAIN)
-                    {
-                        result = AsyncExecutionResult.WaitForPoll;
-                    }
-                    else
-                    {
-                        socketError = SocketPal.GetSocketErrorForErrno(asyncResult.Errno);
-                        result = AsyncExecutionResult.Finished;
-                    }
+                    _bufferOffset = 0;
+                    continue;
                 }
                 else
                 {
-                    BytesTransferred += asyncResult.IntValue;
-                    if (BytesTransferred == memory.Length)
-                    {
-                        socketError = SocketError.Success;
-                        result = AsyncExecutionResult.Finished;
-                    }
+                    SocketError = socketError;
+                    return true;
                 }
             }
+            SocketError = SocketError.Success;
+            return true;
+        }
 
-            if (isCancellationRequested && result != AsyncExecutionResult.Finished)
+        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            IList<ArraySegment<byte>>? bufferList = BufferList;
+
+            if (bufferList == null)
+            {
+                return TryExecuteSingleBufferAsync(MemoryBuffer.Slice(BytesTransferred), executionQueue, callback, state, data);
+            }
+            else
+            {
+                return TryExecuteMultipleBuffersAsync(bufferList, executionQueue, callback, state, data);
+            }
+        }
+
+        private AsyncExecutionResult TryExecuteMultipleBuffersAsync(IList<ArraySegment<byte>> buffers, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            if (executionQueue != null)
+            {
+                Socket socket = Socket!;
+                Memory<byte> memory = buffers[_bufferIndex].Slice(_bufferOffset);
+                executionQueue.AddWrite(socket.SafeHandle, memory, callback!, state, data);
+                return AsyncExecutionResult.Executing;
+            }
+            else
+            {
+                bool finished = TryExecuteMultipleBuffersSync(buffers);
+                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
+            }
+        }
+
+        private AsyncExecutionResult TryExecuteSingleBufferAsync(Memory<byte> memory, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            if (executionQueue != null)
+            {
+                Socket socket = Socket!;
+                executionQueue.AddWrite(socket.SafeHandle, memory, callback!, state, data);
+                return AsyncExecutionResult.Executing;
+            }
+            else
+            {
+                bool finished = TryExecuteSingleBufferSync(memory);
+                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
+            }
+        }
+
+        public override AsyncExecutionResult HandleAsyncResultAndContinue(AsyncOperationResult asyncResult, AsyncExecutionQueue executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            AsyncExecutionResult result = HandleAsyncResult(asyncResult);
+
+            if (result == AsyncExecutionResult.Finished)
+            {
+                return AsyncExecutionResult.Finished;
+            }
+
+            if (IsCancellationRequested)
             {
                 SocketError = SocketError.OperationAborted;
                 return AsyncExecutionResult.Cancelled;
             }
 
-            // When there is a pollable executionQueue, use it to poll, and then try the operation.
-            if (result == AsyncExecutionResult.Executing ||
-                (result == AsyncExecutionResult.WaitForPoll && executionQueue?.SupportsPolling == true))
+            if (result == AsyncExecutionResult.WaitForPoll && executionQueue?.SupportsPolling != true)
             {
-                Socket socket = Socket!;
-                if (socket == null)
-                {
-                    ThrowHelper.ThrowInvalidOperationException();
-                }
+                return AsyncExecutionResult.WaitForPoll;
+            }
 
-                if (executionQueue != null)
+            return TryExecuteAsync(triggeredByPoll: false, executionQueue, callback, state, data);
+        }
+
+        private AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
+        {
+            if (asyncResult.IsError)
+            {
+                if (asyncResult.Errno == EINTR)
                 {
-                    Memory<byte> remaining = memory.Slice(BytesTransferred);
-                    executionQueue.AddWrite(socket.SafeHandle, remaining, callback!, state, data);
-                    result = AsyncExecutionResult.Executing;
+                    return AsyncExecutionResult.Executing;
                 }
-                else if (result == AsyncExecutionResult.Executing)
+                else if (asyncResult.Errno == ECANCELED)
                 {
-                    if (asyncOnly)
+                    SocketError = SocketError.OperationAborted;
+                    return AsyncExecutionResult.Cancelled;
+                }
+                else if (asyncResult.Errno == EAGAIN)
+                {
+                    return AsyncExecutionResult.WaitForPoll;
+                }
+                else
+                {
+                    SocketError = SocketPal.GetSocketErrorForErrno(asyncResult.Errno);
+                    return AsyncExecutionResult.Finished;
+                }
+            }
+            else
+            {
+                BytesTransferred += asyncResult.IntValue;
+
+                IList<ArraySegment<byte>>? bufferList = BufferList;
+                if (bufferList == null)
+                {
+                    if (BytesTransferred == MemoryBuffer.Length)
                     {
-                        result = AsyncExecutionResult.WaitForPoll;
+                        SocketError = SocketError.Success;
+                        return AsyncExecutionResult.Finished;
                     }
-                    else
+                }
+                else
+                {
+                    _bufferOffset += asyncResult.IntValue;
+                    if (_bufferOffset == bufferList[_bufferIndex].Count)
                     {
-                        while (true)
+                        _bufferOffset = 0;
+                        _bufferIndex++;
+                        if (_bufferIndex == bufferList.Count)
                         {
-                            Memory<byte> remaining = memory.Slice(BytesTransferred);
-                            int bytesTransferred;
-                            (socketError, bytesTransferred) = SocketPal.Send(socket.SafeHandle, remaining);
-                            if (socketError == SocketError.Success)
-                            {
-                                BytesTransferred += bytesTransferred;
-                                if (BytesTransferred == memory.Length || bytesTransferred == 0)
-                                {
-                                    break;
-                                }
-                            }
-                            else
-                            {
-                                break;
-                            }
+                            SocketError = SocketError.Success;
+                            return AsyncExecutionResult.Finished;
                         }
-                        result = socketError == SocketError.WouldBlock ? AsyncExecutionResult.WaitForPoll : AsyncExecutionResult.Finished;
                     }
                 }
-            }
 
-            if (result == AsyncExecutionResult.Finished)
-            {
-                SocketError = socketError;
+                return AsyncExecutionResult.Executing;
             }
-
-            return result;
         }
 
         protected void ResetOperationState()
@@ -257,6 +328,7 @@ namespace Tmds.LinuxAsync
             MemoryBuffer = default;
             BufferList = null;
             _bufferIndex = 0;
+            _bufferOffset = 0;
             SocketError = SocketError.SocketError;
             BytesTransferred = 0;
         }

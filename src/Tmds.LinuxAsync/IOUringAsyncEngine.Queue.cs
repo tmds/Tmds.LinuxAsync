@@ -71,16 +71,10 @@ namespace Tmds.LinuxAsync
             {
                 AsyncOperation? op = _executingOperation!;
 
-                bool cancellationRequested = aResult.Errno == ECANCELED;
-                if (cancellationRequested)
-                {
-                    aResult = AsyncOperationResult.NoResult;
-                }
-
-                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, cancellationRequested, asyncOnly: false, _thread.ExecutionQueue,
+                AsyncExecutionResult result = op.HandleAsyncResultAndContinue(aResult, _thread.ExecutionQueue!,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).HandleAsyncResult(aResult)
-                                                    , state: this, data: DataForOperation(op), aResult);
+                                                    , state: this, data: DataForOperation(op));
 
                 if (result == AsyncExecutionResult.Executing)
                 {
@@ -148,10 +142,10 @@ namespace Tmds.LinuxAsync
                         op = QueueGetFirst();
                     }
 
-                    AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, cancellationRequested: false, asyncOnly: false, _thread.ExecutionQueue,
+                    AsyncExecutionResult result = op.TryExecuteAsync(triggeredByPoll: false, _thread.ExecutionQueue,
                                                         (AsyncOperationResult aResult, object? state, int data)
                                                             => ((Queue)state!).HandleAsyncResult(aResult)
-                                                        , state: this, data: DataForOperation(op), AsyncOperationResult.NoResult);
+                                                        , state: this, data: DataForOperation(op));
 
                     if (result == AsyncExecutionResult.Executing)
                     {

@@ -117,40 +117,62 @@ namespace Tmds.LinuxAsync
 
         public override bool IsReadNotWrite => true;
 
-        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        public override bool TryExecuteSync()
         {
             Socket socket = Socket!;
-
-            // When there is a pollable executionQueue, use it to poll, and then try the operation.
-            bool hasPollableExecutionQueue = executionQueue?.SupportsPolling == true;
-            bool trySync = !hasPollableExecutionQueue && !asyncOnly;
-            if (trySync || asyncResult.HasResult)
+            (SocketError socketError, Socket? acceptedSocket) = SocketPal.Accept(socket.SafeHandle);
+            AcceptedSocket = acceptedSocket;
+            if (socketError == SocketError.WouldBlock)
             {
-                (SocketError socketError, Socket? acceptedSocket) = SocketPal.Accept(socket.SafeHandle);
-                if (socketError != SocketError.WouldBlock)
-                {
-                    SocketError = socketError;
-                    AcceptedSocket = acceptedSocket;
-                    return AsyncExecutionResult.Finished;
-                }
+                return false;
+            }
+            SocketError = socketError;
+            return true;
+        }
+
+        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            if (executionQueue != null && executionQueue.SupportsPolling == true)
+            {
+                Socket socket = Socket!;
+                executionQueue!.AddPollIn(socket.SafeHandle, callback!, state, data);
+                return AsyncExecutionResult.Executing;
+            }
+            else
+            {
+                bool finished = TryExecuteSync();
+                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
+            }
+        }
+
+        public override AsyncExecutionResult HandleAsyncResultAndContinue(AsyncOperationResult asyncResult, AsyncExecutionQueue executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            AsyncExecutionResult result = HandleAsyncResult(asyncResult);
+
+            if (result == AsyncExecutionResult.Finished)
+            {
+                return AsyncExecutionResult.Finished;
             }
 
-            if (isCancellationRequested)
+            if (IsCancellationRequested)
             {
                 SocketError = SocketError.OperationAborted;
                 return AsyncExecutionResult.Cancelled;
             }
 
-            // poll
-            if (hasPollableExecutionQueue)
-            {
-                executionQueue!.AddPollIn(socket.SafeHandle, callback!, state, data); ;
-                return AsyncExecutionResult.Executing;
-            }
-            else
+            if (result == AsyncExecutionResult.WaitForPoll && executionQueue?.SupportsPolling != true)
             {
                 return AsyncExecutionResult.WaitForPoll;
             }
+
+            return TryExecuteAsync(triggeredByPoll: false, executionQueue, callback, state, data);
+        }
+
+        private AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
+        {
+            // poll says we're ready
+            bool finished = TryExecuteSync();
+            return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
         }
 
         protected void ResetOperationState()
