@@ -81,6 +81,11 @@ namespace Tmds.LinuxAsync
                     {
                         throw new OperationCanceledException();
                     }
+                    bool cancelled = (_status & OperationStatus.Cancelled) != 0;
+                    if (cancelled)
+                    {
+                        _socketError = SocketError.OperationAborted;
+                    }
                     bool cancelledByTimeout = (_status & OperationStatus.CancelledByTimeout) != 0;
                     if (cancelledByTimeout)
                     {

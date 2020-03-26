@@ -97,13 +97,16 @@ namespace Tmds.LinuxAsync
                 }
                 else // AsyncExecutionResult.WaitForPoll or Cancelled
                 {
-                    OperationStatus previous = op.CompareExchangeStatus(OperationStatus.Queued, OperationStatus.Executing);
-                    if (previous == OperationStatus.Executing)
+                    if (result == AsyncExecutionResult.WaitForPoll)
                     {
-                        // We've changed from executing to queued.
-                        return null;
+                        OperationStatus previous = op.CompareExchangeStatus(OperationStatus.Queued, OperationStatus.Executing);
+                        if (previous == OperationStatus.Executing)
+                        {
+                            // We've changed from executing to queued.
+                            return null;
+                        }
+                        Debug.Assert((previous & OperationStatus.CancellationRequested) != 0);
                     }
-                    Debug.Assert((previous & OperationStatus.CancellationRequested) != 0);
                     op.Status = (op.Status & ~(OperationStatus.CancellationRequested | OperationStatus.Executing)) | OperationStatus.Cancelled;
                 }
 

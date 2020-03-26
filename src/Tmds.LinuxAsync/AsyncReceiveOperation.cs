@@ -172,9 +172,8 @@ namespace Tmds.LinuxAsync
                 return AsyncExecutionResult.Finished;
             }
 
-            if (IsCancellationRequested)
+            if (result == AsyncExecutionResult.Cancelled || IsCancellationRequested)
             {
-                SocketError = SocketError.OperationAborted;
                 return AsyncExecutionResult.Cancelled;
             }
 
@@ -196,7 +195,6 @@ namespace Tmds.LinuxAsync
                 }
                 else if (asyncResult.Errno == ECANCELED)
                 {
-                    SocketError = SocketError.OperationAborted;
                     return AsyncExecutionResult.Cancelled;
                 }
                 else if (asyncResult.Errno == EAGAIN)
