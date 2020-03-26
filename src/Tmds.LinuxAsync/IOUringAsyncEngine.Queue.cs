@@ -83,11 +83,9 @@ namespace Tmds.LinuxAsync
                     result = op.TryExecuteAsync(triggeredByPoll: false, _thread.ExecutionQueue!,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).HandleAsyncResult(aResult)
-                                                    , state: this, data: 0);
-                    if (result == AsyncExecutionResult.Executing)
-                    {
-                        return;
-                    }
+                                                    , state: this, data: DataForOperation(op));
+                    Debug.Assert(result == AsyncExecutionResult.Executing);
+                    return;
                 }
 
                 _executingOperation = null;
@@ -102,8 +100,6 @@ namespace Tmds.LinuxAsync
 
             private AsyncOperation? CompleteOperationAndGetNext(AsyncOperation op, AsyncExecutionResult result)
             {
-                Debug.Assert(result != AsyncExecutionResult.WaitForPoll); // only used by epoll implementation
-
                 if (result == AsyncExecutionResult.Finished)
                 {
                     op.Status = OperationStatus.Completed;
