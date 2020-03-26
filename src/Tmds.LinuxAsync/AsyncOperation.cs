@@ -62,9 +62,10 @@ namespace Tmds.LinuxAsync
         public abstract AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data);
 
         // Handles the result from the ExecutionQueue,
-        // and continues executing the operation it has not finished.
-        // Return value is the same as from TryExecuteAsync.
-        public abstract AsyncExecutionResult HandleAsyncResultAndContinue(AsyncOperationResult result, AsyncExecutionQueue executionQueue, AsyncExecutionCallback? callback, object? state, int data);
+        // Returns Executing if the operation should be tried immediately,
+        // WaitForPoll if the operation should be tried when the handle is ready.
+        // Finished/Cancelled when the operation is finished.
+        public abstract AsyncExecutionResult HandleAsyncResult(AsyncOperationResult result);
 
         // Requests operation to be cancelled.
         public void TryCancelAndComplete(OperationStatus status = OperationStatus.None)

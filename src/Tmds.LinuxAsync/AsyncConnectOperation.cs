@@ -168,29 +168,7 @@ namespace Tmds.LinuxAsync
             }
         }
 
-        public override AsyncExecutionResult HandleAsyncResultAndContinue(AsyncOperationResult asyncResult, AsyncExecutionQueue executionQueue, AsyncExecutionCallback? callback, object? state, int data)
-        {
-            AsyncExecutionResult result = HandleAsyncResult(asyncResult);
-
-            if (result == AsyncExecutionResult.Finished)
-            {
-                return AsyncExecutionResult.Finished;
-            }
-
-            if (result == AsyncExecutionResult.Cancelled || IsCancellationRequested)
-            {
-                return AsyncExecutionResult.Cancelled;
-            }
-
-            if (result == AsyncExecutionResult.WaitForPoll && executionQueue?.SupportsPolling != true)
-            {
-                return AsyncExecutionResult.WaitForPoll;
-            }
-
-            return TryExecuteAsync(triggeredByPoll: false, executionQueue, callback, state, data);
-        }
-
-        private AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
+        public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
         {
             if (asyncResult.Errno == ECANCELED)
             {

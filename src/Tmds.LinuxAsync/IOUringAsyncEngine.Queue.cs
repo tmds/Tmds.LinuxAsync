@@ -71,14 +71,23 @@ namespace Tmds.LinuxAsync
             {
                 AsyncOperation? op = _executingOperation!;
 
-                AsyncExecutionResult result = op.HandleAsyncResultAndContinue(aResult, _thread.ExecutionQueue!,
+                AsyncExecutionResult result = op.HandleAsyncResult(aResult);
+
+                if (result != AsyncExecutionResult.Finished && op.IsCancellationRequested)
+                {
+                    result = AsyncExecutionResult.Cancelled;
+                }
+
+                if (result == AsyncExecutionResult.Executing || result == AsyncExecutionResult.WaitForPoll)
+                {
+                    result = op.TryExecuteAsync(triggeredByPoll: false, _thread.ExecutionQueue!,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).HandleAsyncResult(aResult)
-                                                    , state: this, data: DataForOperation(op));
-
-                if (result == AsyncExecutionResult.Executing)
-                {
-                    return;                        
+                                                    , state: this, data: 0);
+                    if (result == AsyncExecutionResult.Executing)
+                    {
+                        return;
+                    }
                 }
 
                 _executingOperation = null;
