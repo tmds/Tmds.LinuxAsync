@@ -15,7 +15,7 @@ namespace Tmds.LinuxAsync
         public abstract bool ExecuteAsync(AsyncOperation operation, bool preferSync = true);
 
         // Cancel AsyncOperation.
-        internal abstract void TryCancelAndComplete(AsyncOperation asyncOperation, OperationCompletionFlags completionFlags);
+        internal abstract void TryCancelAndComplete(AsyncOperation asyncOperation, OperationStatus status);
 
         // operation caching
         private AsyncOperation? _cachedReadOperation;

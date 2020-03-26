@@ -30,7 +30,7 @@ namespace Tmds.LinuxAsync
             _ctr = cancellationToken.UnsafeRegister(s =>
             {
                 var operation = (AsyncOperation)s!;
-                operation.TryCancelAndComplete(OperationCompletionFlags.CancelledByToken);
+                operation.TryCancelAndComplete(OperationStatus.CancelledByToken);
             }, this);
         }
 
@@ -47,11 +47,11 @@ namespace Tmds.LinuxAsync
             _mre = null;
         }
 
-        public void SetResult(T result, SocketError socketError, OperationCompletionFlags completionFlags)
+        public void SetResult(T result, SocketError socketError, OperationStatus status)
         {
-            _vts.SetResult(result);
             _socketError = socketError;
-            _completionFlags = completionFlags;
+            _status = status;
+            _vts.SetResult(result);
 
             ManualResetEventSlim? mre = Interlocked.Exchange(ref _mre, s_completedSentinel);
             // This ManualResetEventSlim is used to wait until the operation completed.
@@ -63,25 +63,25 @@ namespace Tmds.LinuxAsync
         {
             private T _value;
             private SocketError _socketError;
-            private OperationCompletionFlags _completionFlags;
+            private OperationStatus _status;
 
-            public Result(T value, SocketError socketError, OperationCompletionFlags completionFlags)
+            public Result(T value, SocketError socketError, OperationStatus status)
             {
                 _value = value;
                 _socketError = socketError;
-                _completionFlags = completionFlags;
+                _status = status;
             }
 
             public T GetValue()
             {
                 if (_socketError != System.Net.Sockets.SocketError.Success)
                 {
-                    bool cancelledByToken = (_completionFlags & OperationCompletionFlags.CancelledByToken) != 0;
+                    bool cancelledByToken = (_status & OperationStatus.CancelledByToken) != 0;
                     if (cancelledByToken)
                     {
                         throw new OperationCanceledException();
                     }
-                    bool cancelledByTimeout = (_completionFlags & OperationCompletionFlags.CancelledByTimeout) != 0;
+                    bool cancelledByTimeout = (_status & OperationStatus.CancelledByTimeout) != 0;
                     if (cancelledByTimeout)
                     {
                         _socketError = SocketError.TimedOut;
@@ -96,14 +96,14 @@ namespace Tmds.LinuxAsync
         public Result GetResult(short token)
         {
             T value = _vts.GetResult(token);
-            return new Result(value, _socketError, _completionFlags);
+            return new Result(value, _socketError, _status);
         }
 
         private ManualResetValueTaskSourceCore<T> _vts;
         private CancellationTokenRegistration _ctr;
         private ManualResetEventSlim? _mre;
         private SocketError _socketError;
-        private OperationCompletionFlags _completionFlags;
+        private OperationStatus _status;
 
         public short Version => _vts.Version;
     }

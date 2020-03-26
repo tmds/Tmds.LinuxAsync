@@ -35,21 +35,19 @@ namespace Tmds.LinuxAsync
 
         public override void Complete()
         {
-            Debug.Assert((CompletionFlags & (OperationCompletionFlags.OperationCancelled | OperationCompletionFlags.OperationFinished)) != 0);
-
             int bytesTransferred = BytesTransferred;
             SocketError socketError = SocketError;
-            OperationCompletionFlags completionFlags = CompletionFlags;
+            OperationStatus status = Status;
             ResetOperationState();
 
-            if ((completionFlags & OperationCompletionFlags.CompletedCanceledSync) == OperationCompletionFlags.CompletedCanceledSync)
+            if ((status & OperationStatus.CancelledSync) == OperationStatus.CancelledSync)
             {
                 // Caller threw an exception which prevents further use of this.
                 ResetAndReturnThis();
             }
             else
             {
-                _core.SetResult(bytesTransferred, socketError, completionFlags);
+                _core.SetResult(bytesTransferred, socketError, status);
             }
         }
 
@@ -70,13 +68,11 @@ namespace Tmds.LinuxAsync
 
         public override void Complete()
         {
-            Debug.Assert((CompletionFlags & (OperationCompletionFlags.OperationCancelled | OperationCompletionFlags.OperationFinished)) != 0);
-
             SetSaeaResult();
             ResetOperationState();
 
             bool runContinuationsAsync = _saea.RunContinuationsAsynchronously;
-            bool completeSync = (CompletionFlags & OperationCompletionFlags.CompletedSync) != 0;
+            bool completeSync = (Status & OperationStatus.Sync) != 0;
             if (completeSync || !runContinuationsAsync)
             {
                 ((IThreadPoolWorkItem)this).Execute();
@@ -96,10 +92,10 @@ namespace Tmds.LinuxAsync
         void IThreadPoolWorkItem.Execute()
         {
             // Capture state.
-            OperationCompletionFlags completionStatus = CompletionFlags;
+            OperationStatus completionStatus = Status;
 
             // Reset state.
-            CompletionFlags = OperationCompletionFlags.None;
+            Status = OperationStatus.None;
             CurrentAsyncContext = null;
 
             // Complete.

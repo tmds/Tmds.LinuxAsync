@@ -1,140 +1,236 @@
 ﻿using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 
 namespace Tmds.LinuxAsync
 {
     class AsyncOperationQueueBase
     {
-        protected object Gate => this;
-        protected AsyncOperation? _tail;
+        // _queue contains the executing/pending operations.
+        // Though Sockets can have multiple pending operations, the
+        // common case is there is only one.
+        //
+        // _queue has one of these values:
+        //
+        //    * null:                  the queue is empty.
+        //    * DisposedSentinel:      the queue was disposed.
+        //    * x:                     the queue contains a single operation x.
+        //    * is AsyncOperationGate: the queue contained several elements at some point.
+        //   
+        //              _queue is not an operation. It is used to synchronize
+        //              access to the list of operations.
+        //
+        //              _queue = gate -> last -> first -> second -> ...
+        //                                 ^                         |
+        //                                 +-------------------------+
+        //
+        protected AsyncOperation? _queue;
 
-        protected static bool TryQueueTakeFirst(ref AsyncOperation? tail, [NotNullWhen(true)]out AsyncOperation? first)
+        protected void RemoveQueued(AsyncOperation operation)
         {
-            first = tail?.Next;
-            if (first != null)
+            AsyncOperation? queue = Interlocked.CompareExchange(ref _queue, null, operation);
+            if (object.ReferenceEquals(queue, operation))
             {
-                QueueRemove(ref tail, first);
-                return true;
+                return;
+            }
+            if (queue is object && IsGate(queue))
+            {
+                lock (queue)
+                {
+                    if (queue.Next == operation) // We're the last
+                    {
+                        if (operation.Next == operation) // We're the only
+                        {
+                            queue.Next = null; // empty
+                        }
+                        else
+                        {
+                            // Find newLast
+                            AsyncOperation newLast = operation.Next!;
+                            {
+                                AsyncOperation newLastNext = newLast.Next!;
+                                while (newLastNext != operation)
+                                {
+                                    newLast = newLastNext;
+                                }
+                            }
+                            newLast.Next = operation.Next; // last point to first
+                            queue.Next = newLast;          // gate points to last
+                            operation.Next = operation;    // point to self
+                        }
+                    }
+                    AsyncOperation? last = queue.Next;
+                    if (last != null)
+                    {
+                        AsyncOperation it = last;
+                        do
+                        {
+                            AsyncOperation next = it.Next!;
+                            if (next == operation)
+                            {
+                                it.Next = operation.Next;   // skip operation
+                                operation.Next = operation; // point to self
+                                return;
+                            }
+                            it = next;
+                        } while (it != last);
+                    }
+                }
+            }
+        }
+
+        protected AsyncOperation? QueueGetFirst()
+        {
+            AsyncOperation? queue = Volatile.Read(ref _queue);
+            if (queue is null || IsDisposed(queue))
+            {
+                return null;
+            }
+            if (IsGate(queue))
+            {
+                lock (queue)
+                {
+                    return queue.Next?.Next;
+                }
             }
             else
             {
-                return false;
+                return queue;
             }
         }
 
-        protected static AsyncOperation? QueueGetFirst(AsyncOperation? tail)
-            => tail?.Next;
-
-        protected static void QueueAdd(ref AsyncOperation? tail, AsyncOperation operation)
+        protected bool EnqueueAndGetIsFirst(AsyncOperation operation)
         {
-            Debug.Assert(operation.Next == null);
-            operation.Next = operation;
-
-            if (tail != null)
+            Debug.Assert(operation.Next == operation); // non-queued point to self.
+            operation.Status = OperationStatus.Queued;
+            AsyncOperation? queue = Interlocked.CompareExchange(ref _queue, operation, null);
+            if (queue is null)
             {
-                operation.Next = tail.Next;
-                tail.Next = operation;
+                return true;
             }
 
-            tail = operation;
+            return EnqueueSlowAndGetIsFirst(operation, queue);
         }
 
-        protected static bool QueueRemove(ref AsyncOperation? tail, AsyncOperation operation)
+        protected bool EnqueueSlowAndGetIsFirst(AsyncOperation operation, AsyncOperation? queue)
         {
-            AsyncOperation? tail_ = tail;
-            if (tail_ == null)
-            {
-                return false;
-            }
+            Debug.Assert(queue != null);
 
-            if (tail_ == operation)
+            SpinWait spin = new SpinWait();
+            while (true)
             {
-                if (tail_.Next == operation)
+                if (IsDisposed(queue))
                 {
-                    tail = null;
+                    operation.Status = OperationStatus.None;
+                    ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
                 }
                 else
                 {
-                    AsyncOperation newTail = tail_.Next!;
-                    AsyncOperation newTailNext = newTail.Next!;
-                    while (newTailNext != tail_)
+                    // Install a gate.
+                    if (!IsGate(queue))
                     {
-                        newTail = newTailNext;
-                    }
-                    tail = newTail;
-                }
+                        AsyncOperation singleOperation = queue;
+                        Debug.Assert(singleOperation.Next == singleOperation);
 
-                operation.Next = null;
-                return true;
-            }
-            else
-            {
-                AsyncOperation it = tail_;
-                do
-                {
-                    AsyncOperation next = it.Next!;
-                    if (next == operation)
-                    {
-                        it.Next = next.Next;
-                        operation.Next = null;
-                        return true;
-                    }
-                    it = next;
-                } while (it != tail_);
-            }
-
-            return false;
-        }
-
-        // Requests cancellation of a queued operation.
-        // If the operation is not on the queue (because it already completed), NotFound is returned.
-        // If the operation is not executing, it is removed from the queue and Cancelled is returned.
-        // If the operation is executing, it stays on the queue, the operation gets marked as cancellation requested,
-        // and Requested is returned.
-        protected CancellationRequestResult RequestCancellationAsync(AsyncOperation operation, OperationCompletionFlags flags)
-        {
-            CancellationRequestResult result = CancellationRequestResult.NotFound;
-            if (_tail == operation) // We're the last operation
-            {
-                result = operation.RequestCancellationAsync(flags);
-                if (result == CancellationRequestResult.Cancelled)
-                {
-                    if (operation.Next == operation) // We're the only operation.
-                    {
-                        _tail = null;
-                    }
-                    else
-                    {
-                        // Update tail
-                        do
+                        AsyncOperation gate = new AsyncOperationGate();
+                        gate.Next = singleOperation;
+                        queue = Interlocked.CompareExchange(ref _queue, gate, singleOperation);
+                        if (queue != singleOperation)
                         {
-                            _tail = _tail.Next;
-                        } while (_tail!.Next != operation);
-                        // Update head
-                        _tail.Next = operation.Next;
-                    }
-                    operation.Next = null;
-                }
-            }
-            else if (_tail != null) // The list is multiple operations and we're not the last
-            {
-                ref AsyncOperation nextOperation = ref _tail.Next!;
-                do
-                {
-                    if (nextOperation == operation)
-                    {
-                        result = operation.RequestCancellationAsync(flags);
-                        if (result == CancellationRequestResult.Cancelled)
-                        {
-                            nextOperation = operation.Next!;
-                            operation.Next = null;
+                            if (queue is null)
+                            {
+                                queue = Interlocked.CompareExchange(ref _queue, operation, null);
+                                if (queue is null)
+                                {
+                                    return true;
+                                }
+                            }
+                            spin.SpinOnce();
+                            continue;
                         }
-                        break;
+                        queue = gate;
                     }
-                    nextOperation = ref nextOperation.Next!;
-                } while (nextOperation != _tail);
+
+                    lock (queue)
+                    {
+                        if (object.ReferenceEquals(_queue, DisposedSentinel))
+                        {
+                            continue;
+                        }
+
+                        AsyncOperation? last = queue.Next;
+                        if (last == null) // empty queue
+                        {
+                            queue.Next = operation;
+                            return true;
+                        }
+                        else
+                        {
+                            queue.Next = operation;     // gate points to new last
+                            operation.Next = last.Next; // new last points to first
+                            last.Next = operation;      // previous last points to new last
+                            return false;
+                        }
+                    }
+                }
             }
-            return result;
         }
+
+        protected AsyncOperation? DequeueFirstAndGetNext(AsyncOperation first)
+        {
+            AsyncOperation? queue = Interlocked.CompareExchange(ref _queue, null, first);
+            Debug.Assert(queue != null);
+            if (object.ReferenceEquals(queue, first) || IsDisposed(queue))
+            {
+                return null;
+            }
+
+            Debug.Assert(IsGate(queue));
+            lock (queue)
+            {
+                if (queue.Next == first) // we're the last -> single element
+                {
+                    Debug.Assert(first.Next == first); // verify we're a single element list
+                    queue.Next = null;
+                    return null;
+                }
+                else
+                {
+                    AsyncOperation? last = queue.Next;
+                    Debug.Assert(last != null); // there is an element
+                    Debug.Assert(last.Next == first); // we're first
+                    last.Next = first.Next; // skip operation
+                    first.Next = first;     // point to self
+                    return last.Next;
+                }
+            }
+        }
+
+        protected static readonly AsyncOperation DisposedSentinel = new AsyncOperationSentinel();
+
+        sealed class AsyncOperationSentinel : AsyncOperation
+        {
+            public override bool IsReadNotWrite
+                => throw new System.InvalidOperationException();
+            public override void Complete()
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
+                => throw new System.InvalidOperationException();
+        }
+
+        protected sealed class AsyncOperationGate : AsyncOperation
+        {
+            public override bool IsReadNotWrite
+                => throw new System.InvalidOperationException();
+            public override void Complete()
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
+                => throw new System.InvalidOperationException();
+        }
+
+        private static bool IsDisposed(AsyncOperation queue)
+            => object.ReferenceEquals(queue, DisposedSentinel);
+
+        private static bool IsGate(AsyncOperation queue)
+            => queue.GetType() == typeof(AsyncOperationGate);
     }
 }

@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Threading;
 
 namespace Tmds.LinuxAsync
@@ -9,6 +10,7 @@ namespace Tmds.LinuxAsync
         {
             private readonly EPollThread _thread;
             private int _eventCounter;
+            private AsyncOperation? _executingOperation;
 
             public Queue(EPollThread thread)
             {
@@ -17,196 +19,233 @@ namespace Tmds.LinuxAsync
 
             public bool Dispose()
             {
-                // TODO: handle cancellation and wait for execution to finish.
-                AsyncOperation? tail;
-                lock (Gate)
+                AsyncOperation? queue = Interlocked.Exchange(ref _queue, DisposedSentinel);
+
+                // already disposed
+                if (queue == DisposedSentinel)
                 {
-                    tail = _tail;
-
-                    // Already disposed?
-                    if (tail == AsyncOperation.DisposedSentinel)
-                    {
-                        return false;
-                    }
-
-                    _tail = AsyncOperation.DisposedSentinel;
+                    return false;
                 }
 
-                CompleteOperationsCancelled(ref tail);
-
-                return true;
-
-                static void CompleteOperationsCancelled(ref AsyncOperation? tail)
+                if (queue != null)
                 {
-                    while (TryQueueTakeFirst(ref tail, out AsyncOperation? op))
+                    AsyncOperation? gate = queue as AsyncOperationGate;
+                    if (gate != null)
                     {
-                        op.CompletionFlags = OperationCompletionFlags.CompletedCanceled;
-                        op.Complete();
-                    }
-                }
-            }
+                        // Synchronize with Enqueue.
+                        lock (gate)
+                        { }
 
-            public void ExecuteQueued(bool triggeredByPoll, AsyncOperationResult asyncResult)
-            {
-                AsyncOperation? completedTail = null;
-
-                lock (Gate)
-                {
-                    _eventCounter++;
-
-                    if (_tail is { } && _tail != AsyncOperation.DisposedSentinel)
-                    {
-                        AsyncOperation? op = QueueGetFirst(_tail);
-                        while (op != null)
+                        AsyncOperation? last = gate.Next;
+                        if (last != null)
                         {
-                            // We're executing and waiting for an async result.
-                            if (op.IsExecuting && !asyncResult.HasResult)
+                            AsyncOperation op = gate.Next!;
+                            do
                             {
-                                break;
-                            }
+                                AsyncOperation next = op.Next!;
 
-                            AsyncExecutionResult result = TryExecuteOperation(asyncOnly: false, op, asyncResult, triggeredByPoll, op.IsCancellationRequested);
+                                op.Next = op; // point to self.
+                                TryCancelAndComplete(op, OperationStatus.None, wait: true);
 
-                            // Operation finished, set CompletionFlags.
-                            if (result == AsyncExecutionResult.Finished)
-                            {
-                                op.CompletionFlags = OperationCompletionFlags.CompletedFinishedAsync;
-                            }
-                            else if (result == AsyncExecutionResult.Cancelled)
-                            {
-                                Debug.Assert((op.CompletionFlags & OperationCompletionFlags.OperationCancelled) != 0);
-                                result = AsyncExecutionResult.Finished;
-                            }
-
-                            if (result == AsyncExecutionResult.Finished)
-                            {
-                                QueueRemove(ref _tail, op);
-                                QueueAdd(ref completedTail, op);
-                                op = QueueGetFirst(_tail);
-                                continue;
-                            }
-                            break;
+                                if (op == last)
+                                {
+                                    break;
+                                }
+                                op = next;
+                            } while (true);
                         }
                     }
+                    else
+                    {
+                        // queue is single operation
+                        TryCancelAndComplete(queue, OperationStatus.None, wait: true);
+                    }
                 }
 
-                // Complete operations.
-                while (TryQueueTakeFirst(ref completedTail, out AsyncOperation? completedOp))
+                return true;
+            }
+
+            private void HandleAsyncResult(AsyncOperationResult aResult)
+            {
+                AsyncOperation? op = _executingOperation!;
+
+                bool cancellationRequested = op.IsCancellationRequested;
+
+                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, cancellationRequested, asyncOnly: false, _thread.ExecutionQueue,
+                                                    (AsyncOperationResult aResult, object? state, int data)
+                                                        => ((Queue)state!).HandleAsyncResult(aResult)
+                                                    , state: this, data: 0, aResult);
+
+                if (result == AsyncExecutionResult.Executing)
                 {
-                    completedOp.Complete();
+                    return;                        
+                }
+
+                _executingOperation = null;
+
+                AsyncOperation? next = CompleteOperationAndGetNext(op, result);
+
+                if (next != null)
+                {
+                    ExecuteQueued(triggeredByPoll: false, next);
                 }
             }
 
-            private AsyncExecutionResult TryExecuteOperation(bool asyncOnly, AsyncOperation op, AsyncOperationResult asyncResult, bool triggeredByPoll = false, bool isCancellationRequested = false)
+            private AsyncOperation? CompleteOperationAndGetNext(AsyncOperation op, AsyncExecutionResult result)
             {
-                AsyncExecutionResult result = op.TryExecute(triggeredByPoll, isCancellationRequested, asyncOnly, _thread.ExecutionQueue,
-                                                    (AsyncOperationResult aResult, object? state, int data)
-                                                        => ((Queue)state!).ExecuteQueued(triggeredByPoll: false, aResult)
-                                                    , state: this, data: 0, asyncResult);
-
-                if (isCancellationRequested)
+                if (result == AsyncExecutionResult.Finished)
                 {
-                    Debug.Assert(result == AsyncExecutionResult.Finished || result == AsyncExecutionResult.Cancelled);
+                    op.Status = OperationStatus.Completed;
+                }
+                else // AsyncExecutionResult.WaitForPoll or Cancelled
+                {
+                    OperationStatus previous = op.CompareExchangeStatus(OperationStatus.Queued, OperationStatus.Executing);
+                    if (previous == OperationStatus.Executing)
+                    {
+                        // We've changed from executing to queued.
+                        return null;
+                    }
+                    Debug.Assert((previous & OperationStatus.CancellationRequested) != 0);
+                    op.Status = (op.Status & ~(OperationStatus.CancellationRequested | OperationStatus.Executing)) | OperationStatus.Cancelled;
                 }
 
-                op.IsExecuting = result == AsyncExecutionResult.Executing;
-                return result;
+                AsyncOperation? next = DequeueFirstAndGetNext(op);
+
+                op.Complete();
+
+                return next;
+            }
+
+            public void ExecuteQueued(bool triggeredByPoll, AsyncOperation? op = null)
+            {
+                if (triggeredByPoll)
+                {
+                    Interlocked.Increment(ref _eventCounter);
+                }
+
+                op ??= QueueGetFirst();
+                do
+                {
+                    var spin = new SpinWait();
+                    while (true)
+                    {
+                        if (op is null)
+                        {
+                            return;
+                        }
+                        OperationStatus previous = op.CompareExchangeStatus(OperationStatus.Executing, OperationStatus.Queued);
+                        if (previous == OperationStatus.Queued)
+                        {
+                            // We've changed from queued to executing.
+                            break;
+                        }
+                        else if ((previous & OperationStatus.Executing) != 0) // Also set when CancellationRequested.
+                        {
+                            // Already executing.
+                            return;
+                        }
+                        // Operation was cancelled, but not yet removed from queue.
+                        Debug.Assert((previous & OperationStatus.Cancelled) != 0);
+                        spin.SpinOnce();
+                        op = QueueGetFirst();
+                    }
+
+                    AsyncExecutionResult result = op.TryExecute(triggeredByPoll, cancellationRequested: false, asyncOnly: false, _thread.ExecutionQueue,
+                                                        (AsyncOperationResult aResult, object? state, int data)
+                                                            => ((Queue)state!).HandleAsyncResult(aResult)
+                                                        , state: this, data: 0, AsyncOperationResult.NoResult);
+
+                    if (result == AsyncExecutionResult.Executing)
+                    {
+                        _executingOperation = op;
+                        return;                        
+                    }
+
+                    op = CompleteOperationAndGetNext(op, result);
+                } while (op != null);
             }
 
             public bool ExecuteAsync(AsyncOperation operation, bool preferSync)
             {
-                bool finished = false;
                 int? eventCounterSnapshot = null;
+
                 bool batchOnPollThread = _thread.BatchOnIOThread // Avoid overhead of _thread.IsCurrentThread
                     && _thread.IsCurrentThread;
 
-                // Try executing without a lock.
-                if (!batchOnPollThread && preferSync && Volatile.Read(ref _tail) == null)
+                if (!batchOnPollThread && preferSync)
                 {
-                    eventCounterSnapshot = Volatile.Read(ref _eventCounter);
-                    finished = operation.TryExecuteSync();
-                }
-
-                if (!finished)
-                {
-                    bool postToIOThread = false;
-                    lock (Gate)
+                    if (Volatile.Read(ref _queue) == null)
                     {
-                        if (_tail == AsyncOperation.DisposedSentinel)
+                        eventCounterSnapshot = Volatile.Read(ref _eventCounter);
+                        bool finished = operation.TryExecuteSync();
+                        if (finished)
                         {
-                            ThrowHelper.ThrowObjectDisposedException<AsyncContext>();
+                            operation.Status = OperationStatus.CompletedSync;
+                            operation.Complete();
+                            return false;
                         }
-
-                        bool isQueueEmpty = _tail == null;
-                        if (isQueueEmpty)
-                        {
-                            if (batchOnPollThread)
-                            {
-                                AsyncExecutionResult result = TryExecuteOperation(asyncOnly: false, operation, AsyncOperationResult.NoResult);
-                                finished = result == AsyncExecutionResult.Finished;
-                            }
-                            else if (preferSync)
-                            {
-                                // execute again if an event occurred, to ensure we didn't lose the event.
-                                if (_eventCounter != eventCounterSnapshot)
-                                {
-                                    finished = operation.TryExecuteSync();
-                                }
-                            }
-                            else
-                            {
-                                AsyncExecutionQueue? executionQueue = _thread.ExecutionQueue;
-                                if (executionQueue?.IsThreadSafe == true)
-                                {
-                                    AsyncExecutionResult result = TryExecuteOperation(asyncOnly: true, operation, AsyncOperationResult.NoResult);
-                                    finished = result == AsyncExecutionResult.Finished;
-                                    // If we couldn't queue the operation (Executing), we need to post.
-                                    postToIOThread = result == AsyncExecutionResult.WaitForPoll;
-                                }
-                                else
-                                {
-                                    postToIOThread = true;
-                                }
-                            }
-                        }
-
-                        if (!finished)
-                        {
-                            QueueAdd(ref _tail, operation);
-                        }
-                    }
-                    if (postToIOThread)
-                    {
-                        _thread.Schedule((object? s) => ((Queue)s!).ExecuteQueued(triggeredByPoll: false, AsyncOperationResult.NoResult), this);
                     }
                 }
 
-                if (finished)
+                bool postToIOThread = false;
+                bool isFirst = EnqueueAndGetIsFirst(operation);
+                if (isFirst)
                 {
-                    operation.CompletionFlags = OperationCompletionFlags.CompletedFinishedSync;
-                    operation.Complete();
+                    if (batchOnPollThread)
+                    {
+                        ExecuteQueued(triggeredByPoll: false, operation);
+                    }
+                    else if (preferSync)
+                    {
+                        postToIOThread = _eventCounter != eventCounterSnapshot;
+                    }
+                    else
+                    {
+                        postToIOThread = true;
+                    }
                 }
 
-                return !finished;
+                if (postToIOThread)
+                {
+                    _thread.Schedule((object? s) => ((Queue)s!).ExecuteQueued(triggeredByPoll: false), this);
+                }
+
+                return true;
             }
 
-            public void TryCancelAndComplete(AsyncOperation operation, OperationCompletionFlags flags)
+            public void TryCancelAndComplete(AsyncOperation operation, OperationStatus flags, bool wait = false)
             {
-                CancellationRequestResult result;
-
-                lock (Gate)
+                OperationStatus previous = OperationStatus.Queued;
+                do
                 {
-                    if (operation.IsCancellationRequested)
+                    OperationStatus actual;
+                    if (previous == OperationStatus.Queued)
                     {
-                        return;
+                        actual = operation.CompareExchangeStatus(OperationStatus.Cancelled | flags, OperationStatus.Queued);
                     }
+                    else
+                    {
+                        actual = operation.CompareExchangeStatus(OperationStatus.CancellationRequested | OperationStatus.Executing | flags, OperationStatus.Executing);
+                    }
+                    if (actual == previous)
+                    {
+                        break;
+                    }
+                    previous = actual;
+                } while (previous == OperationStatus.Executing || previous == OperationStatus.Queued);
 
-                    result = RequestCancellationAsync(operation, flags);
-                }
-
-                if (result == CancellationRequestResult.Cancelled)
+                if (previous == OperationStatus.Queued)
                 {
+                    RemoveQueued(operation);
                     operation.Complete();
+                }
+                else if (previous == OperationStatus.Executing && wait)
+                {
+                    SpinWait spin = new SpinWait();
+                    while (operation.VolatileReadIsCancellationRequested())
+                    {
+                        spin.SpinOnce();
+                    }
                 }
             }
         }

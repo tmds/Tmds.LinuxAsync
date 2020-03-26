@@ -87,18 +87,6 @@ namespace Tmds.LinuxAsync
                     // Complete pending async operations.
                     iouring.Dispose();
 
-                    IOUringAsyncContext[] contexts;
-                    lock (_asyncContexts)
-                    {
-                        contexts = new IOUringAsyncContext[_asyncContexts.Count];
-                        _asyncContexts.Values.CopyTo(contexts, 0);
-                        _asyncContexts.Clear();
-                    }
-                    foreach (var context in contexts)
-                    {
-                        context.Dispose();
-                    }
-
                     FreeResources();
                 }
                 catch (Exception e)
@@ -210,6 +198,10 @@ namespace Tmds.LinuxAsync
                     if (_disposed)
                     {
                         return;
+                    }
+                    if (_asyncContexts.Count > 0)
+                    {
+                        throw new InvalidOperationException("There are undisposed AsyncContexts.");
                     }
                     _disposed = true;
                 }
