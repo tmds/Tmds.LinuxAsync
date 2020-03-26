@@ -165,30 +165,27 @@ namespace Tmds.LinuxAsync
 
         public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
         {
-            if (asyncResult.IsError)
-            {
-                if (asyncResult.Errno == EINTR)
-                {
-                    return AsyncExecutionResult.Executing;
-                }
-                else if (asyncResult.Errno == ECANCELED)
-                {
-                    return AsyncExecutionResult.Cancelled;
-                }
-                else if (asyncResult.Errno == EAGAIN)
-                {
-                    return AsyncExecutionResult.WaitForPoll;
-                }
-                else
-                {
-                    SocketError = SocketPal.GetSocketErrorForErrno(asyncResult.Errno);
-                    return AsyncExecutionResult.Finished;
-                }
-            }
-            else
+            if (asyncResult.Errno == 0)
             {
                 BytesTransferred = asyncResult.IntValue;
                 SocketError = SocketError.Success;
+                return AsyncExecutionResult.Finished;
+            }
+            else if (asyncResult.Errno == EINTR)
+            {
+                return AsyncExecutionResult.Executing;
+            }
+            else if (asyncResult.Errno == ECANCELED)
+            {
+                return AsyncExecutionResult.Cancelled;
+            }
+            else if (asyncResult.Errno == EAGAIN)
+            {
+                return AsyncExecutionResult.WaitForPoll;
+            }
+            else
+            {
+                SocketError = SocketPal.GetSocketErrorForErrno(asyncResult.Errno);
                 return AsyncExecutionResult.Finished;
             }
         }
