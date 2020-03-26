@@ -151,6 +151,7 @@ namespace Tmds.LinuxAsync
             {
                 if (!_connectCalled)
                 {
+                    _connectCalled = true;
                     bool finished = TryExecuteSync();
                     return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
                 }
