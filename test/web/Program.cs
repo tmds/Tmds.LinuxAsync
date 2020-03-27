@@ -42,7 +42,7 @@ namespace web
                                 serviceCollection.AddIoUringTransport(options =>
                                 {
                                     options.ThreadCount = commandLineOptions.ThreadCount;
-                                    options.ApplicationSchedulingMode = commandLineOptions.ApplicationCodeIsNonBlocking.Value ?
+                                    options.ApplicationSchedulingMode = commandLineOptions.InputScheduler == InputScheduler.Inline ?
                                         PipeScheduler.Inline : PipeScheduler.ThreadPool;
                                 }));
                             break;
@@ -51,7 +51,7 @@ namespace web
                             {
                                 options.ThreadCount = commandLineOptions.ThreadCount;
                                 options.DeferSend = commandLineOptions.DeferSends.Value;
-                                options.ApplicationSchedulingMode= commandLineOptions.ApplicationCodeIsNonBlocking.Value ?
+                                options.ApplicationSchedulingMode= commandLineOptions.InputScheduler == InputScheduler.Inline ?
                                     PipeScheduler.Inline : PipeScheduler.ThreadPool;
                             });
                             break;
@@ -64,12 +64,12 @@ namespace web
                         default:
                             webBuilder.UseLinuxAsyncSockets(options =>
                                 {
-                                    options.DispatchContinuations = commandLineOptions.DispatchContinuations.Value;
                                     options.DeferSends = commandLineOptions.DeferSends.Value;
                                     options.DeferReceives = commandLineOptions.DeferReceives.Value;
                                     options.DontAllocateMemoryForIdleConnections = commandLineOptions.DontAllocateMemoryForIdleConnections.Value;
                                     options.OutputScheduler = commandLineOptions.OutputScheduler;
-                                    options.ApplicationCodeIsNonBlocking = commandLineOptions.ApplicationCodeIsNonBlocking.Value;
+                                    options.InputScheduler = commandLineOptions.InputScheduler;
+                                    options.SocketContinuationScheduler = commandLineOptions.SocketContinuationScheduler;
                                 }
                             );
                             break;
@@ -79,7 +79,7 @@ namespace web
 
         private static AsyncEngine CreateAsyncEngine(CommandLineOptions commandLineOptions)
         {
-            bool batchOnIOThread = !commandLineOptions.DispatchContinuations.Value ||
+            bool batchOnIOThread = commandLineOptions.SocketContinuationScheduler == SocketContinuationScheduler.Inline ||
                                           commandLineOptions.OutputScheduler == OutputScheduler.IOThread;
             switch (commandLineOptions.SocketEngine)
             {

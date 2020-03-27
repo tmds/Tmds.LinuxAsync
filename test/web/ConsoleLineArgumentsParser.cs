@@ -29,8 +29,8 @@ namespace web
         [Option('a', "aio", Required = false, Default = true, HelpText = "Use Linux AIO")]
         public bool? UseAio { get; set; }
 
-        [Option('c', "dispatch-continuations", Required = false, Default = true, HelpText = "Dispatch Continuations")]
-        public bool? DispatchContinuations { get; set; }
+        [Option('c', "socket-scheduler", Required = false, Default = SocketContinuationScheduler.ThreadPool, HelpText = "Inline/ThreadPool")]
+        public SocketContinuationScheduler SocketContinuationScheduler { get; set; }
 
         [Option('s', "defer-sends", Required = false, Default = false, HelpText = "Defer Sends")]
         public bool? DeferSends { get; set; }
@@ -41,11 +41,11 @@ namespace web
         [Option('w', "wait-for-ready", Required = false, Default = true, HelpText = "Don't allocate memory for idle connections")]
         public bool? DontAllocateMemoryForIdleConnections { get; set; }
 
-        [Option('o', "output-writer-scheduler", Required = false, Default = OutputScheduler.IOQueue, HelpText = "IOQueue/Inline/IOThread/ThreadPool")]
+        [Option('o', "output-scheduler", Required = false, Default = OutputScheduler.IOQueue, HelpText = "IOQueue/Inline/IOThread/ThreadPool")]
         public OutputScheduler OutputScheduler { get; set; }
 
-        [Option('i', "inline-app", Required = false, Default = false, HelpText = "Application code is non blocking")]
-        public bool? ApplicationCodeIsNonBlocking { get; set; }
+        [Option('i', "input-scheduler", Required = false, Default = InputScheduler.ThreadPool, HelpText = "Inline/ThreadPool")]
+        public InputScheduler InputScheduler { get; set; }
     }
 
     public static class ConsoleLineArgumentsParser
