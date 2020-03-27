@@ -113,8 +113,8 @@ namespace Tmds.LinuxAsync.Transport
                     }
 
                     var connection = new SocketConnection(acceptSocket, _memoryPool, _schedulers[_schedulerIndex], _trace,
-                        _options.MaxReadBufferSize, _options.MaxWriteBufferSize, _options.DeferSends, _options.DeferReceives, _options.DispatchContinuations,
-                        _options.ApplicationCodeIsNonBlocking, _options.DontAllocateMemoryForIdleConnections, _options.OutputScheduler);
+                        _options.MaxReadBufferSize, _options.MaxWriteBufferSize, _options.DeferSends, _options.DeferReceives, _options.SocketContinuationScheduler,
+                        _options.InputScheduler, _options.DontAllocateMemoryForIdleConnections, _options.OutputScheduler);
 
                     connection.Start();
 

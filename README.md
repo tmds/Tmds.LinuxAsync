@@ -54,13 +54,24 @@ public enum OutputScheduler
     IOThread,
     ThreadPool
 }
+public enum InputScheduler
+{
+    Inline,
+    ThreadPool
+}
+public enum SocketContinuationScheduler
+{
+    Inline,
+    ThreadPool
+}
 class SocketTransportOptions
 {
   public bool DispatchContinuations { get; set; } = true; // Sets RunContinuationsAsynchronously
   public bool DeferSends { get; set; } = false;           // Sets !PreferSynchronousCompletion for sends
   public bool DeferReceives { get; set; } = false;        // Sets !PreferSynchronousCompletion for receives
-  public bool OutputScheduler { get; set; } = OutputScheduler.IOQueue;
-  public bool ApplicationCodeIsNonBlocking { get; set; } = false;
+  public OutputScheduler OutputScheduler { get; set; } = OutputScheduler.IOQueue;
+  public InputScheduler InputScheduler { get; set; } = InputScheduler.ThreadPool;
+  public SocketContinuationScheduler SocketContinuationScheduler { get; set; } = SocketContinuationScheduler.ThreadPool;
   public bool DontAllocateMemoryForIdleConnections { get; set; } = true;
 }
 ```

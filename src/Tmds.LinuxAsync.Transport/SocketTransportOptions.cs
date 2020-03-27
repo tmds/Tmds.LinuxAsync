@@ -14,6 +14,18 @@ namespace Tmds.LinuxAsync.Transport
         ThreadPool
     }
 
+    public enum InputScheduler
+    {
+        Inline,
+        ThreadPool
+    }
+
+    public enum SocketContinuationScheduler
+    {
+        Inline,
+        ThreadPool
+    }
+
     public class SocketTransportOptions
     {
         /// <summary>
@@ -32,11 +44,13 @@ namespace Tmds.LinuxAsync.Transport
         /// </remarks>
         public bool NoDelay { get; set; } = true;
 
-        public bool ApplicationCodeIsNonBlocking { get; set; } = false;
-
         public bool DontAllocateMemoryForIdleConnections { get; set; } = true;
 
         public OutputScheduler OutputScheduler { get; set; } = OutputScheduler.IOQueue;
+
+        public InputScheduler InputScheduler { get; set; } = InputScheduler.ThreadPool;
+
+        public SocketContinuationScheduler SocketContinuationScheduler { get; set; } = SocketContinuationScheduler.ThreadPool;
 
 
         /// <summary>
@@ -53,7 +67,6 @@ namespace Tmds.LinuxAsync.Transport
 
         internal Func<MemoryPool<byte>> MemoryPoolFactory { get; set; } = System.Buffers.SlabMemoryPoolFactory.Create;
 
-        public bool DispatchContinuations { get; set; } = true;
         public bool DeferSends { get; set; } = false;
         public bool DeferReceives { get; set; } = false;
     }

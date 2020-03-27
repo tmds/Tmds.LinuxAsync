@@ -43,8 +43,8 @@ namespace Tmds.LinuxAsync.Transport.Internal
                                   long? maxWriteBufferSize = null,
                                   bool deferSends = true,
                                   bool deferReceives = true,
-                                  bool dispatchContinuations = true,
-                                  bool applicationCodeIsNonBlocking = false,
+                                  SocketContinuationScheduler socketScheduler = SocketContinuationScheduler.ThreadPool,
+                                  InputScheduler inputScheduler = InputScheduler.ThreadPool,
                                   bool dontAllocateMemoryForIdleConnections = true,
                                   OutputScheduler outputScheduler = OutputScheduler.IOQueue)
         {
@@ -67,8 +67,8 @@ namespace Tmds.LinuxAsync.Transport.Internal
             // https://github.com/aspnet/KestrelHttpServer/issues/2573
             var awaiterScheduler = IsWindows ? scheduler : PipeScheduler.Inline;
 
-            _receiver = new SocketReceiver(_socket, awaiterScheduler, runContinuationsAsynchronously: dispatchContinuations, preferSynchronousCompletion: !deferReceives);
-            _sender = new SocketSender(_socket, awaiterScheduler, runContinuationsAsynchronously: dispatchContinuations, preferSynchronousCompletion: !deferSends);
+            _receiver = new SocketReceiver(_socket, awaiterScheduler, runContinuationsAsynchronously: socketScheduler == SocketContinuationScheduler.ThreadPool, preferSynchronousCompletion: !deferReceives);
+            _sender = new SocketSender(_socket, awaiterScheduler, runContinuationsAsynchronously: socketScheduler == SocketContinuationScheduler.ThreadPool, preferSynchronousCompletion: !deferSends);
 
             maxReadBufferSize ??= 0;
             maxWriteBufferSize ??= 0;
@@ -82,7 +82,7 @@ namespace Tmds.LinuxAsync.Transport.Internal
                 _ => throw new IndexOutOfRangeException()
             };
 
-            var appScheduler = applicationCodeIsNonBlocking ? PipeScheduler.Inline : PipeScheduler.ThreadPool;
+            var appScheduler = inputScheduler == InputScheduler.Inline ? PipeScheduler.Inline : PipeScheduler.ThreadPool;
             var inputOptions = new PipeOptions(MemoryPool, appScheduler, scheduler, maxReadBufferSize.Value, maxReadBufferSize.Value / 2, useSynchronizationContext: false);
             var outputOptions = new PipeOptions(MemoryPool, pipeScheduler, appScheduler, maxWriteBufferSize.Value, maxWriteBufferSize.Value / 2, useSynchronizationContext: false);
 
