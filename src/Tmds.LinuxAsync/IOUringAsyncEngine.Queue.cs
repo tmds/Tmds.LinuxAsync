@@ -71,20 +71,21 @@ namespace Tmds.LinuxAsync
             {
                 AsyncOperation? op = _executingOperation!;
 
-                bool cancellationRequested = aResult.Errno == ECANCELED;
-                if (cancellationRequested)
+                AsyncExecutionResult result = op.HandleAsyncResult(aResult);
+
+                if (result != AsyncExecutionResult.Finished && op.IsCancellationRequested)
                 {
-                    aResult = AsyncOperationResult.NoResult;
+                    result = AsyncExecutionResult.Cancelled;
                 }
 
-                AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, cancellationRequested, asyncOnly: false, _thread.ExecutionQueue,
+                if (result == AsyncExecutionResult.Executing || result == AsyncExecutionResult.WaitForPoll)
+                {
+                    result = op.TryExecuteAsync(triggeredByPoll: false, _thread.ExecutionQueue!,
                                                     (AsyncOperationResult aResult, object? state, int data)
                                                         => ((Queue)state!).HandleAsyncResult(aResult)
-                                                    , state: this, data: DataForOperation(op), aResult);
-
-                if (result == AsyncExecutionResult.Executing)
-                {
-                    return;                        
+                                                    , state: this, data: DataForOperation(op));
+                    Debug.Assert(result == AsyncExecutionResult.Executing);
+                    return;
                 }
 
                 _executingOperation = null;
@@ -99,8 +100,6 @@ namespace Tmds.LinuxAsync
 
             private AsyncOperation? CompleteOperationAndGetNext(AsyncOperation op, AsyncExecutionResult result)
             {
-                Debug.Assert(result != AsyncExecutionResult.WaitForPoll); // only used by epoll implementation
-
                 if (result == AsyncExecutionResult.Finished)
                 {
                     op.Status = OperationStatus.Completed;
@@ -148,10 +147,10 @@ namespace Tmds.LinuxAsync
                         op = QueueGetFirst();
                     }
 
-                    AsyncExecutionResult result = op.TryExecute(triggeredByPoll: false, cancellationRequested: false, asyncOnly: false, _thread.ExecutionQueue,
+                    AsyncExecutionResult result = op.TryExecuteAsync(triggeredByPoll: false, _thread.ExecutionQueue,
                                                         (AsyncOperationResult aResult, object? state, int data)
                                                             => ((Queue)state!).HandleAsyncResult(aResult)
-                                                        , state: this, data: DataForOperation(op), AsyncOperationResult.NoResult);
+                                                        , state: this, data: DataForOperation(op));
 
                     if (result == AsyncExecutionResult.Executing)
                     {

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks.Sources;
+using static Tmds.Linux.LibC;
 
 namespace Tmds.LinuxAsync
 {
@@ -117,40 +118,44 @@ namespace Tmds.LinuxAsync
 
         public override bool IsReadNotWrite => true;
 
-        public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool isCancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult asyncResult)
+        public override bool TryExecuteSync()
         {
             Socket socket = Socket!;
-
-            // When there is a pollable executionQueue, use it to poll, and then try the operation.
-            bool hasPollableExecutionQueue = executionQueue?.SupportsPolling == true;
-            bool trySync = !hasPollableExecutionQueue && !asyncOnly;
-            if (trySync || asyncResult.HasResult)
+            (SocketError socketError, Socket? acceptedSocket) = SocketPal.Accept(socket.SafeHandle);
+            AcceptedSocket = acceptedSocket;
+            if (socketError == SocketError.WouldBlock)
             {
-                (SocketError socketError, Socket? acceptedSocket) = SocketPal.Accept(socket.SafeHandle);
-                if (socketError != SocketError.WouldBlock)
-                {
-                    SocketError = socketError;
-                    AcceptedSocket = acceptedSocket;
-                    return AsyncExecutionResult.Finished;
-                }
+                return false;
             }
+            SocketError = socketError;
+            return true;
+        }
 
-            if (isCancellationRequested)
+        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        {
+            if (executionQueue != null && executionQueue.SupportsPolling == true)
             {
-                SocketError = SocketError.OperationAborted;
-                return AsyncExecutionResult.Cancelled;
-            }
-
-            // poll
-            if (hasPollableExecutionQueue)
-            {
-                executionQueue!.AddPollIn(socket.SafeHandle, callback!, state, data); ;
+                Socket socket = Socket!;
+                executionQueue!.AddPollIn(socket.SafeHandle, callback!, state, data);
                 return AsyncExecutionResult.Executing;
             }
             else
             {
-                return AsyncExecutionResult.WaitForPoll;
+                bool finished = TryExecuteSync();
+                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
             }
+        }
+
+        public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
+        {
+            if (asyncResult.Errno == ECANCELED)
+            {
+                return AsyncExecutionResult.Cancelled;
+            }
+
+            // poll says we're ready
+            bool finished = TryExecuteSync();
+            return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
         }
 
         protected void ResetOperationState()

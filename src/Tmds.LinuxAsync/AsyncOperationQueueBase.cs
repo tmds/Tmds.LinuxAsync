@@ -213,7 +213,11 @@ namespace Tmds.LinuxAsync
                 => throw new System.InvalidOperationException();
             public override void Complete()
                 => throw new System.InvalidOperationException();
-            public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
+            public override bool TryExecuteSync()
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult result)
                 => throw new System.InvalidOperationException();
         }
 
@@ -223,7 +227,11 @@ namespace Tmds.LinuxAsync
                 => throw new System.InvalidOperationException();
             public override void Complete()
                 => throw new System.InvalidOperationException();
-            public override AsyncExecutionResult TryExecute(bool triggeredByPoll, bool cancellationRequested, bool asyncOnly, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data, AsyncOperationResult result)
+            public override bool TryExecuteSync()
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult result)
                 => throw new System.InvalidOperationException();
         }
 
