@@ -122,13 +122,15 @@ namespace Tmds.LinuxAsync
             MemoryBuffer = memory;
             BufferList = bufferList;
         }
+
         public override bool TryExecuteSync()
         {
             IList<ArraySegment<byte>>? bufferList = BufferList;
 
             if (bufferList == null)
             {
-                return TryExecuteSingleBufferSync(MemoryBuffer);
+                var memory = MemoryBuffer.Slice(BytesTransferred);
+                return TryExecuteSingleBufferSync(memory);
             }
             else
             {
@@ -196,49 +198,51 @@ namespace Tmds.LinuxAsync
             return true;
         }
 
-        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        public override AsyncExecutionResult TryExecuteEpollAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, IAsyncExecutionResultHandler callback)
+        {
+            if (executionQueue != null)
+            {
+                return TryExecuteAsync(executionQueue, callback, data: 0);
+            }
+            else
+            {
+                bool finished = TryExecuteSync();
+                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
+            }
+        }
+
+        public override AsyncExecutionResult TryExecuteIOUringAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int key)
+        {
+            return TryExecuteAsync(executionQueue, callback, data: key);
+        }
+
+        public AsyncExecutionResult TryExecuteAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler? callback, int data)
         {
             IList<ArraySegment<byte>>? bufferList = BufferList;
 
             if (bufferList == null)
             {
-                return TryExecuteSingleBufferAsync(MemoryBuffer.Slice(BytesTransferred), executionQueue, callback, state, data);
+                return TryExecuteSingleBufferAsync(MemoryBuffer.Slice(BytesTransferred), executionQueue, callback, data);
             }
             else
             {
-                return TryExecuteMultipleBuffersAsync(bufferList, executionQueue, callback, state, data);
+                return TryExecuteMultipleBuffersAsync(bufferList, executionQueue, callback, data);
             }
         }
 
-        private AsyncExecutionResult TryExecuteMultipleBuffersAsync(IList<ArraySegment<byte>> buffers, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        private AsyncExecutionResult TryExecuteMultipleBuffersAsync(IList<ArraySegment<byte>> buffers, AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler? callback, int data)
         {
-            if (executionQueue != null)
-            {
-                Socket socket = Socket!;
-                Memory<byte> memory = buffers[_bufferIndex].Slice(_bufferOffset);
-                executionQueue.AddWrite(socket.SafeHandle, memory, callback!, state, data);
-                return AsyncExecutionResult.Executing;
-            }
-            else
-            {
-                bool finished = TryExecuteMultipleBuffersSync(buffers);
-                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
-            }
+            Socket socket = Socket!;
+            Memory<byte> memory = buffers[_bufferIndex].Slice(_bufferOffset);
+            executionQueue.AddWrite(socket.SafeHandle, memory, callback!, data);
+            return AsyncExecutionResult.Executing;
         }
 
-        private AsyncExecutionResult TryExecuteSingleBufferAsync(Memory<byte> memory, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        private AsyncExecutionResult TryExecuteSingleBufferAsync(Memory<byte> memory, AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler? callback, int data)
         {
-            if (executionQueue != null)
-            {
-                Socket socket = Socket!;
-                executionQueue.AddWrite(socket.SafeHandle, memory, callback!, state, data);
-                return AsyncExecutionResult.Executing;
-            }
-            else
-            {
-                bool finished = TryExecuteSingleBufferSync(memory);
-                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
-            }
+            Socket socket = Socket!;
+            executionQueue.AddWrite(socket.SafeHandle, memory, callback!, data);
+            return AsyncExecutionResult.Executing;
         }
 
         public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)

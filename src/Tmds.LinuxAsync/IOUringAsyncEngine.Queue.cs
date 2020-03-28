@@ -6,20 +6,20 @@ namespace Tmds.LinuxAsync
 {
     public partial class IOUringAsyncEngine
     {
-        sealed class Queue : AsyncOperationQueueBase
+        sealed class Queue : AsyncOperationQueueBase, IAsyncExecutionResultHandler
         {
             private readonly IOUringThread _thread;
             private readonly IOUringAsyncContext _context;
             private AsyncOperation? _executingOperation;
             private AsyncOperation? _cancellingOperation;
-            private int _dataForOperation;
+            private int _keyForOperation;
 
             public Queue(IOUringThread thread, IOUringAsyncContext context, bool readNotWrite)
             {
                 _thread = thread;
                 _context = context;
                 // This is used to distinguish on-going read from write when cancelling.
-                _dataForOperation = readNotWrite ? POLLIN : POLLOUT;
+                _keyForOperation = readNotWrite ? POLLIN : POLLOUT;
             }
 
             public bool Dispose()
@@ -70,7 +70,7 @@ namespace Tmds.LinuxAsync
                 return true;
             }
 
-            private void HandleAsyncResult(AsyncOperationResult aResult)
+            void IAsyncExecutionResultHandler.HandleAsyncResult(AsyncOperationResult aResult)
             {
                 AsyncOperation? op = _executingOperation!;
 
@@ -83,10 +83,7 @@ namespace Tmds.LinuxAsync
 
                 if (result == AsyncExecutionResult.Executing || result == AsyncExecutionResult.WaitForPoll)
                 {
-                    result = op.TryExecuteAsync(triggeredByPoll: false, _thread.ExecutionQueue!,
-                                                    (AsyncOperationResult aResult, object? state, int data)
-                                                        => ((Queue)state!).HandleAsyncResult(aResult)
-                                                    , state: this, data: _dataForOperation);
+                    result = op.TryExecuteIOUringAsync(_thread.ExecutionQueue!, this, _keyForOperation);
                     Debug.Assert(result == AsyncExecutionResult.Executing);
                     return;
                 }
@@ -150,10 +147,7 @@ namespace Tmds.LinuxAsync
                         op = QueueGetFirst();
                     }
 
-                    AsyncExecutionResult result = op.TryExecuteAsync(triggeredByPoll: false, _thread.ExecutionQueue,
-                                                        (AsyncOperationResult aResult, object? state, int data)
-                                                            => ((Queue)state!).HandleAsyncResult(aResult)
-                                                        , state: this, data: _dataForOperation);
+                    AsyncExecutionResult result = op.TryExecuteIOUringAsync(_thread.ExecutionQueue, this, _keyForOperation);
 
                     if (result == AsyncExecutionResult.Executing)
                     {
@@ -264,7 +258,7 @@ namespace Tmds.LinuxAsync
                 AsyncOperation? operation = Interlocked.Exchange(ref _cancellingOperation, null);
                 if (operation?.IsCancellationRequested == true)
                 {
-                    _thread.ExecutionQueue.AddCancel(_context.Handle, _dataForOperation);
+                    _thread.ExecutionQueue.AddCancel(_context.Handle, _keyForOperation);
                 }
             }
         }

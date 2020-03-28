@@ -23,9 +23,7 @@ namespace Tmds.LinuxAsync
                 public bool IsReadNotWrite;
                 public SafeHandle Handle;
                 public Memory<byte> Memory;
-                public AsyncExecutionCallback Callback;
-                public object? State;
-                public int Data;
+                public IAsyncExecutionResultHandler ResultHandler;
             }
 
             private List<Operation>? _scheduledOperations;
@@ -46,8 +44,7 @@ namespace Tmds.LinuxAsync
             private unsafe iocb** AioCbsTable => (iocb**)Align(_aioCbsTableMemory);
             // private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory); // TODO
 
-            public unsafe LinuxAio() :
-                base(supportsPolling: false, isThreadSafe: false)
+            public unsafe LinuxAio()
             {
                 _memoryHandles = new List<MemoryHandle>();
                 try
@@ -78,7 +75,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public override void AddRead(SafeHandle handle, Memory<byte> memory, AsyncExecutionCallback callback, object? state, int data)
+            public override void AddRead(SafeHandle handle, Memory<byte> memory, IAsyncExecutionResultHandler callback, int data)
             {
                 if (memory.Length == 0)
                 {
@@ -88,16 +85,16 @@ namespace Tmds.LinuxAsync
                 {
                     _scheduledOperations = new List<Operation>();
                 }
-                _scheduledOperations.Add(new Operation { Handle = handle, Memory = memory, IsReadNotWrite = true, Callback = callback, State = state, Data = data });
+                _scheduledOperations.Add(new Operation { Handle = handle, Memory = memory, IsReadNotWrite = true, ResultHandler = callback });
             }
 
-            public override void AddWrite(SafeHandle handle, Memory<byte> memory, AsyncExecutionCallback callback, object? state, int data)
+            public override void AddWrite(SafeHandle handle, Memory<byte> memory, IAsyncExecutionResultHandler callback, int data)
             {
                 if (_scheduledOperations == null)
                 {
                     _scheduledOperations = new List<Operation>();
                 }
-                _scheduledOperations.Add(new Operation { Handle = handle, Memory = memory, IsReadNotWrite = false, Callback = callback, State = state, Data = data });
+                _scheduledOperations.Add(new Operation { Handle = handle, Memory = memory, IsReadNotWrite = false, ResultHandler = callback });
             }
 
             public unsafe bool ExecuteOperations()
@@ -184,7 +181,7 @@ namespace Tmds.LinuxAsync
                     for (int i = queueOffset; i < (queueOffset + nr); i++)
                     {
                         Operation op = scheduled[i];
-                        op.Callback(results[i], op.State, op.Data);
+                        op.ResultHandler.HandleAsyncResult(results[i]);
                     }
 
                     queueOffset += nr;
@@ -308,12 +305,12 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public override void AddPollIn(SafeHandle handle, AsyncExecutionCallback asyncExecutionCallback, object? state, int data)
+            public override void AddPollIn(SafeHandle handle, IAsyncExecutionResultHandler asyncExecutionCallback, int data)
             {
                 throw new NotSupportedException();
             }
 
-            public override void AddPollOut(SafeHandle handle, AsyncExecutionCallback asyncExecutionCallback, object? state, int data)
+            public override void AddPollOut(SafeHandle handle, IAsyncExecutionResultHandler asyncExecutionCallback, int data)
             {
                 throw new NotSupportedException();
             }

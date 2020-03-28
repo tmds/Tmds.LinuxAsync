@@ -123,6 +123,7 @@ namespace Tmds.LinuxAsync
                 throw new NotSupportedException();
             }
         }
+
         public override bool TryExecuteSync()
         {
             Socket socket = Socket!;
@@ -136,33 +137,31 @@ namespace Tmds.LinuxAsync
             return true;
         }
 
-        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        public override AsyncExecutionResult TryExecuteEpollAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, IAsyncExecutionResultHandler callback)
         {
-            if (executionQueue != null && executionQueue.SupportsPolling == true)
+            if (!_connectCalled)
             {
-                Socket socket = Socket!;
-                executionQueue!.AddPollOut(socket.SafeHandle, callback!, state, data);
-                return AsyncExecutionResult.Executing;
+                _connectCalled = true;
+                bool finished = TryExecuteSync();
+                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
             }
             else
             {
-                if (!_connectCalled)
+                if (triggeredByPoll)
                 {
-                    _connectCalled = true;
-                    bool finished = TryExecuteSync();
-                    return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
+                    // TODO: read SOL_SOCKET, SO_ERROR to get errorcode...
+                    SocketError = SocketError.Success;
+                    return AsyncExecutionResult.Finished;
                 }
-                else
-                {
-                    if (triggeredByPoll)
-                    {
-                        // TODO: read SOL_SOCKET, SO_ERROR to get errorcode...
-                        SocketError = SocketError.Success;
-                        return AsyncExecutionResult.Finished;
-                    }
-                    return AsyncExecutionResult.WaitForPoll;
-                }
+                return AsyncExecutionResult.WaitForPoll;
             }
+        }
+
+        public override AsyncExecutionResult TryExecuteIOUringAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int key)
+        {
+            Socket socket = Socket!;
+            executionQueue!.AddPollOut(socket.SafeHandle, callback!, key);
+            return AsyncExecutionResult.Executing;
         }
 
         public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)

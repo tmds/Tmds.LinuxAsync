@@ -6,7 +6,7 @@ namespace Tmds.LinuxAsync
 {
     public partial class EPollAsyncEngine
     {
-        sealed class Queue : AsyncOperationQueueBase
+        sealed class Queue : AsyncOperationQueueBase, IAsyncExecutionResultHandler
         {
             private readonly EPollThread _thread;
             private int _eventCounter;
@@ -65,7 +65,7 @@ namespace Tmds.LinuxAsync
                 return true;
             }
 
-            private void HandleAsyncResult(AsyncOperationResult aResult)
+            void IAsyncExecutionResultHandler.HandleAsyncResult(AsyncOperationResult aResult)
             {
                 AsyncOperation? op = _executingOperation!;
 
@@ -78,10 +78,7 @@ namespace Tmds.LinuxAsync
 
                 if (result == AsyncExecutionResult.Executing)
                 {
-                    result = op.TryExecuteAsync(triggeredByPoll: false, _thread.ExecutionQueue!,
-                                                    (AsyncOperationResult aResult, object? state, int data)
-                                                        => ((Queue)state!).HandleAsyncResult(aResult)
-                                                    , state: this, data: 0);
+                    result = op.TryExecuteEpollAsync(triggeredByPoll: false, _thread.ExecutionQueue, this);
                     if (result == AsyncExecutionResult.Executing)
                     {
                         return;
@@ -160,10 +157,7 @@ namespace Tmds.LinuxAsync
                         op = QueueGetFirst();
                     }
 
-                    AsyncExecutionResult result = op.TryExecuteAsync(triggeredByPoll, _thread.ExecutionQueue,
-                                                        (AsyncOperationResult aResult, object? state, int data)
-                                                            => ((Queue)state!).HandleAsyncResult(aResult)
-                                                        , state: this, data: 0);
+                    AsyncExecutionResult result = op.TryExecuteEpollAsync(triggeredByPoll, _thread.ExecutionQueue, this);
 
                     if (result == AsyncExecutionResult.Executing)
                     {
