@@ -216,7 +216,7 @@ namespace Tmds.LinuxAsync
             return TryExecuteAsync(executionQueue, callback, data: key);
         }
 
-        public AsyncExecutionResult TryExecuteAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler? callback, int data)
+        public AsyncExecutionResult TryExecuteAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int data)
         {
             IList<ArraySegment<byte>>? bufferList = BufferList;
 
@@ -230,18 +230,18 @@ namespace Tmds.LinuxAsync
             }
         }
 
-        private AsyncExecutionResult TryExecuteMultipleBuffersAsync(IList<ArraySegment<byte>> buffers, AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler? callback, int data)
+        private AsyncExecutionResult TryExecuteMultipleBuffersAsync(IList<ArraySegment<byte>> buffers, AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int data)
         {
             Socket socket = Socket!;
             Memory<byte> memory = buffers[_bufferIndex].Slice(_bufferOffset);
-            executionQueue.AddWrite(socket.SafeHandle, memory, callback!, data);
+            executionQueue.AddWrite(socket.SafeHandle, memory, callback, data);
             return AsyncExecutionResult.Executing;
         }
 
-        private AsyncExecutionResult TryExecuteSingleBufferAsync(Memory<byte> memory, AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler? callback, int data)
+        private AsyncExecutionResult TryExecuteSingleBufferAsync(Memory<byte> memory, AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int data)
         {
             Socket socket = Socket!;
-            executionQueue.AddWrite(socket.SafeHandle, memory, callback!, data);
+            executionQueue.AddWrite(socket.SafeHandle, memory, callback, data);
             return AsyncExecutionResult.Executing;
         }
 

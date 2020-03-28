@@ -83,7 +83,7 @@ namespace Tmds.LinuxAsync
 
                 if (result == AsyncExecutionResult.Executing || result == AsyncExecutionResult.WaitForPoll)
                 {
-                    result = op.TryExecuteIOUringAsync(_thread.ExecutionQueue!, this, _keyForOperation);
+                    result = op.TryExecuteIOUringAsync(_thread.ExecutionQueue, this, _keyForOperation);
                     Debug.Assert(result == AsyncExecutionResult.Executing);
                     return;
                 }
