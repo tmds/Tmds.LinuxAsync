@@ -96,7 +96,7 @@ namespace Tmds.LinuxAsync
 
             // Reset state.
             Status = OperationStatus.None;
-            CurrentAsyncContext = null;
+            CurrentQueue = null;
 
             // Complete.
             _saea.Complete(completionStatus);
@@ -123,9 +123,6 @@ namespace Tmds.LinuxAsync
             Socket = socket;
             MemoryBuffer = memory;
         }
-
-        public override bool IsReadNotWrite => true;
-
         public override bool TryExecuteSync()
         {
             Socket socket = Socket!;

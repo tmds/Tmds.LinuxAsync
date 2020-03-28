@@ -23,12 +23,7 @@ namespace Tmds.LinuxAsync
             Next = this;
         }
 
-        // AsyncContext on whith the operation is performed.
-        // This value gets set by AsyncContext, and cleared by the AsyncOperation.
-        public AsyncContext? CurrentAsyncContext { get; set; }
-
-        // Should this operation be polled for input, or output by the AsyncEngine.
-        public abstract bool IsReadNotWrite { get; }
+        public AsyncOperationQueueBase? CurrentQueue { get; set; }
 
         // Can be used to create a queue of AsyncOperations.
         public AsyncOperation? Next;
@@ -70,18 +65,13 @@ namespace Tmds.LinuxAsync
         // Requests operation to be cancelled.
         public void TryCancelAndComplete(OperationStatus status = OperationStatus.None)
         {
-            AsyncContext? context = CurrentAsyncContext;
-            // When context is null, the operation completed already.
-            if (context != null)
-            {
-                context.TryCancelAndComplete(this, status);
-            }
+            CurrentQueue?.TryCancelAndComplete(this, status);
         }
 
         protected void ReturnThis()
         {
-            AsyncContext asyncContext = CurrentAsyncContext!;
-            CurrentAsyncContext = null;
+            var queue = CurrentQueue!;
+            CurrentQueue = null;
 
             // We don't re-use operations that were cancelled async,
             // because cancellation is detected via StatusFlags.
@@ -89,14 +79,7 @@ namespace Tmds.LinuxAsync
             {
                 Status = OperationStatus.None;
 
-                if (IsReadNotWrite)
-                {
-                    asyncContext.ReturnReadOperation(this);
-                }
-                else
-                {
-                    asyncContext.ReturnWriteOperation(this);
-                }
+                queue.ReturnOperation(this);
             }
         }
     }

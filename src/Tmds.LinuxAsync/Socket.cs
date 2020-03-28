@@ -10,18 +10,39 @@ namespace Tmds.LinuxAsync
     public sealed class Socket : IDisposable
     {
         private readonly System.Net.Sockets.Socket _innerSocket;
-        internal AsyncContext AsyncContext { get; }
+        private AsyncContext? _asyncContext;
+        internal AsyncContext AsyncContext
+        {
+            get
+            {
+                if (_asyncContext == null)
+                {
+                    CreateAsyncContext();
+                }
+                return _asyncContext!;
+            }
+        }
 
+        private void CreateAsyncContext()
+        {
+            var context = AsyncEngine.SocketEngine.CreateContext(_innerSocket.SafeHandle);
+            if (Interlocked.CompareExchange(ref _asyncContext, context, null) == null)
+            {
+                _asyncContext = context;
+            }
+            else
+            {
+                context.Dispose();
+            }
+        }
         public Socket(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
         {
             _innerSocket = new System.Net.Sockets.Socket(addressFamily, socketType, protocolType);
-            AsyncContext = AsyncEngine.SocketEngine.CreateContext(_innerSocket.SafeHandle);
         }
 
         internal Socket(System.Net.Sockets.Socket innerSocket)
         {
             _innerSocket = innerSocket;
-            AsyncContext = AsyncEngine.SocketEngine.CreateContext(_innerSocket.SafeHandle);
         }
 
         public SafeSocketHandle SafeHandle => _innerSocket.SafeHandle;
@@ -50,34 +71,33 @@ namespace Tmds.LinuxAsync
         public bool ReceiveAsync(SocketAsyncEventArgs e)
         {
             var op = e.StartReceiveOperation(this);
-            return AsyncContext.ExecuteAsync(op, e.PreferSynchronousCompletion);
+            return AsyncContext.ExecuteReadAsync(op, e.PreferSynchronousCompletion);
         }
 
         public bool SendAsync(SocketAsyncEventArgs e)
         {
             var op = e.StartSendOperation(this);
-            return AsyncContext.ExecuteAsync(op, e.PreferSynchronousCompletion);
+            return AsyncContext.ExecuteWriteAsync(op, e.PreferSynchronousCompletion);
         }
 
         public bool AcceptAsync(SocketAsyncEventArgs e)
         {
             var op = e.StartAcceptOperation(this);
-            return AsyncContext.ExecuteAsync(op, e.PreferSynchronousCompletion);
+            return AsyncContext.ExecuteReadAsync(op, e.PreferSynchronousCompletion);
         }
 
         public bool ConnectAsync(SocketAsyncEventArgs e)
         {
             var op = e.StartConnectOperation(this);
-            return AsyncContext.ExecuteAsync(op, e.PreferSynchronousCompletion);
+            return AsyncContext.ExecuteWriteAsync(op, e.PreferSynchronousCompletion);
         }
-
         public ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var asyncOperation = AsyncContext.RentReadOperation<AwaitableSocketReceiveOperation>();
             asyncOperation.Configure(this, buffer, bufferList: null);
-            bool pending = AsyncContext.ExecuteAsync(asyncOperation);
+            bool pending = AsyncContext.ExecuteReadAsync(asyncOperation);
             if (pending)
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
@@ -91,7 +111,7 @@ namespace Tmds.LinuxAsync
 
             var asyncOperation = AsyncContext.RentWriteOperation<AwaitableSocketSendOperation>();
             asyncOperation.Configure(this, buffer, bufferList: null);
-            bool pending = AsyncContext.ExecuteAsync(asyncOperation);
+            bool pending = AsyncContext.ExecuteWriteAsync(asyncOperation);
             if (pending)
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
@@ -105,7 +125,7 @@ namespace Tmds.LinuxAsync
 
             var asyncOperation = AsyncContext.RentWriteOperation<AwaitableSocketConnectOperation>();
             asyncOperation.Configure(this, endPoint);
-            bool pending = AsyncContext.ExecuteAsync(asyncOperation);
+            bool pending = AsyncContext.ExecuteWriteAsync(asyncOperation);
             if (pending)
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
@@ -119,7 +139,7 @@ namespace Tmds.LinuxAsync
 
             var asyncOperation = AsyncContext.RentReadOperation<AwaitableSocketAcceptOperation>();
             asyncOperation.Configure(this);
-            bool pending = AsyncContext.ExecuteAsync(asyncOperation);
+            bool pending = AsyncContext.ExecuteReadAsync(asyncOperation);
             if (pending)
             {
                 asyncOperation.RegisterCancellation(cancellationToken);
@@ -132,7 +152,7 @@ namespace Tmds.LinuxAsync
         {
             var asyncOperation = AsyncContext.RentWriteOperation<AwaitableSocketConnectOperation>();
             asyncOperation.Configure(this, endPoint);
-            bool pending = AsyncContext.ExecuteAsync(asyncOperation);
+            bool pending = AsyncContext.ExecuteWriteAsync(asyncOperation);
             if (pending)
             {
                 using var mre = new ManualResetEventSlim();

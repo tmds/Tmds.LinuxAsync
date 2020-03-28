@@ -96,7 +96,7 @@ namespace Tmds.LinuxAsync
 
             // Reset state.
             Status = OperationStatus.None;
-            CurrentAsyncContext = null;
+            CurrentQueue = null;
 
             // Complete.
             _saea.Complete(completionStatus);
@@ -122,9 +122,6 @@ namespace Tmds.LinuxAsync
             MemoryBuffer = memory;
             BufferList = bufferList;
         }
-
-        public override bool IsReadNotWrite => false;
-
         public override bool TryExecuteSync()
         {
             IList<ArraySegment<byte>>? bufferList = BufferList;

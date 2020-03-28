@@ -3,8 +3,16 @@ using System.Threading;
 
 namespace Tmds.LinuxAsync
 {
-    class AsyncOperationQueueBase
+    abstract class AsyncOperationQueueBase
     {
+        private AsyncOperation? _cachedOperation;
+
+        public void ReturnOperation(AsyncOperation operation)
+            => Volatile.Write(ref _cachedOperation, operation);
+
+        public T RentOperation<T>() where T : AsyncOperation, new()
+            => (T?)Interlocked.Exchange(ref _cachedOperation, null) ?? new T();
+
         // _queue contains the executing/pending operations.
         // Though Sockets can have multiple pending operations, the
         // common case is there is only one.
@@ -24,6 +32,10 @@ namespace Tmds.LinuxAsync
         //                                 +-------------------------+
         //
         protected AsyncOperation? _queue;
+
+        public abstract void TryCancelAndComplete(AsyncOperation operation, OperationStatus flags);
+
+        public abstract bool ExecuteAsync(AsyncOperation operation, bool preferSync);
 
         protected void RemoveQueued(AsyncOperation operation)
         {
@@ -209,8 +221,6 @@ namespace Tmds.LinuxAsync
 
         sealed class AsyncOperationSentinel : AsyncOperation
         {
-            public override bool IsReadNotWrite
-                => throw new System.InvalidOperationException();
             public override void Complete()
                 => throw new System.InvalidOperationException();
             public override bool TryExecuteSync()
@@ -223,8 +233,6 @@ namespace Tmds.LinuxAsync
 
         protected sealed class AsyncOperationGate : AsyncOperation
         {
-            public override bool IsReadNotWrite
-                => throw new System.InvalidOperationException();
             public override void Complete()
                 => throw new System.InvalidOperationException();
             public override bool TryExecuteSync()
