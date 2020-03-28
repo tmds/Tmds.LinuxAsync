@@ -18,7 +18,7 @@ namespace Tmds.LinuxAsync
             {
                 _thread = thread;
                 _context = context;
-                // Needed to distinguish distinguish on-going read/write operations on this handle.
+                // This is used to distinguish on-going read from write when cancelling.
                 _dataForOperation = readNotWrite ? POLLIN : POLLOUT;
             }
 

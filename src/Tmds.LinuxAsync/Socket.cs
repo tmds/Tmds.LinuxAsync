@@ -59,7 +59,10 @@ namespace Tmds.LinuxAsync
         // Dispose.
         private void Dispose(bool disposing)
         {
-            AsyncContext?.Dispose();
+            if (_asyncContext != null)
+            {
+                _asyncContext.Dispose();
+            }
             _innerSocket?.Dispose();
         }
 
@@ -91,6 +94,7 @@ namespace Tmds.LinuxAsync
             var op = e.StartConnectOperation(this);
             return AsyncContext.ExecuteWriteAsync(op, e.PreferSynchronousCompletion);
         }
+
         public ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
