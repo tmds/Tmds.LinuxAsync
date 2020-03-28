@@ -175,7 +175,7 @@ namespace Tmds.LinuxAsync
                 } while (op != null);
             }
 
-            public bool ExecuteAsync(AsyncOperation operation, bool preferSync)
+            public override bool ExecuteAsync(AsyncOperation operation, bool preferSync)
             {
                 int? eventCounterSnapshot = null;
 
@@ -223,7 +223,10 @@ namespace Tmds.LinuxAsync
                 return true;
             }
 
-            public void TryCancelAndComplete(AsyncOperation operation, OperationStatus flags, bool wait = false)
+            public override void TryCancelAndComplete(AsyncOperation operation, OperationStatus flags)
+                => TryCancelAndComplete(operation, flags, wait: false);
+
+            private void TryCancelAndComplete(AsyncOperation operation, OperationStatus flags, bool wait)
             {
                 OperationStatus previous = OperationStatus.Queued;
                 do
