@@ -225,7 +225,9 @@ namespace Tmds.LinuxAsync
                 => throw new System.InvalidOperationException();
             public override bool TryExecuteSync()
                 => throw new System.InvalidOperationException();
-            public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+            public override AsyncExecutionResult TryExecuteEpollAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, IAsyncExecutionResultHandler callback)
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult TryExecuteIOUringAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int key)
                 => throw new System.InvalidOperationException();
             public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult result)
                 => throw new System.InvalidOperationException();
@@ -237,7 +239,9 @@ namespace Tmds.LinuxAsync
                 => throw new System.InvalidOperationException();
             public override bool TryExecuteSync()
                 => throw new System.InvalidOperationException();
-            public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+            public override AsyncExecutionResult TryExecuteEpollAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, IAsyncExecutionResultHandler callback)
+                => throw new System.InvalidOperationException();
+            public override AsyncExecutionResult TryExecuteIOUringAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int key)
                 => throw new System.InvalidOperationException();
             public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult result)
                 => throw new System.InvalidOperationException();

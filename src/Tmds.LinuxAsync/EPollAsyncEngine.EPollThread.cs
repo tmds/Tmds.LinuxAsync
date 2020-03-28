@@ -10,7 +10,7 @@ namespace Tmds.LinuxAsync
 {
     public partial class EPollAsyncEngine
     {
-        sealed class EPollThread : PipeScheduler, IDisposable
+        sealed class EPollThread : PipeScheduler, IDisposable, IAsyncExecutionResultHandler
         {
             private const int EventBufferLength = 512;
             private const int PipeKey = -1;
@@ -239,14 +239,15 @@ namespace Tmds.LinuxAsync
                     {
                         _dummyReadBuffer = new byte[128];
                     }
-                    executionEngine.AddRead(_pipeReadEnd!, _dummyReadBuffer,
-                        (AsyncOperationResult result, object? state, int data) =>
-                        {
-                            if (result.IsError && result.Errno != EAGAIN)
-                            {
-                                PlatformException.Throw();
-                            }
-                        }, state: null, data: 0);
+                    executionEngine.AddRead(_pipeReadEnd!, _dummyReadBuffer, this, data: 0);
+                }
+            }
+
+            void IAsyncExecutionResultHandler.HandleAsyncResult(AsyncOperationResult result)
+            {
+                if (result.IsError && result.Errno != EAGAIN)
+                {
+                    PlatformException.Throw();
                 }
             }
 

@@ -54,7 +54,8 @@ namespace Tmds.LinuxAsync
         // When the operation can make use of the executionQueue, AsyncExecutionResult.Executing is returned.
         // When the operation cannot make use of the queue, the operation is attempted synchronously
         // and WaitForPoll/Finished is returned.
-        public abstract AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data);
+        public abstract AsyncExecutionResult TryExecuteEpollAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, IAsyncExecutionResultHandler callback);
+        public abstract AsyncExecutionResult TryExecuteIOUringAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int key);
 
         // Handles the result from the ExecutionQueue,
         // Returns Executing if the operation should be tried immediately,

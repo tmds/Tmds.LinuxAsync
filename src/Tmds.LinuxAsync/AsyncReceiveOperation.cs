@@ -136,14 +136,14 @@ namespace Tmds.LinuxAsync
             return true;
         }
 
-        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        public override AsyncExecutionResult TryExecuteEpollAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, IAsyncExecutionResultHandler callback)
         {
-            Memory<byte> memory = MemoryBuffer;
+           Memory<byte> memory = MemoryBuffer;
             bool isPollingReadable = memory.Length == 0; // A zero-byte read is a poll.
-            if (executionQueue != null && (!isPollingReadable || executionQueue.SupportsPolling == true))
+            if (executionQueue != null && !isPollingReadable)
             {
                 Socket socket = Socket!;
-                executionQueue.AddRead(socket.SafeHandle, MemoryBuffer, callback!, state, data);
+                executionQueue.AddRead(socket.SafeHandle, MemoryBuffer, callback!, data: 0);
                 return AsyncExecutionResult.Executing;
             }
             else
@@ -158,6 +158,13 @@ namespace Tmds.LinuxAsync
                 bool finished = TryExecuteSync();
                 return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
             }
+        }
+
+        public override AsyncExecutionResult TryExecuteIOUringAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int key)
+        {
+            Socket socket = Socket!;
+            executionQueue.AddRead(socket.SafeHandle, MemoryBuffer, callback!, data: key);
+            return AsyncExecutionResult.Executing;
         }
 
         public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)

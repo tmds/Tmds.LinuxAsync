@@ -66,33 +66,24 @@ namespace Tmds.LinuxAsync
         }
     }
 
-    delegate void AsyncExecutionCallback(AsyncOperationResult result, object? state, int data);
+    interface IAsyncExecutionResultHandler
+    {
+        void HandleAsyncResult(AsyncOperationResult result);
+    }
 
     // Supports batching operations for execution.
     abstract class AsyncExecutionQueue : IDisposable
     {
         // Add a read.
-        public abstract void AddRead(SafeHandle handle, Memory<byte> memory, AsyncExecutionCallback callback, object? state, int data);
+        public abstract void AddRead(SafeHandle handle, Memory<byte> memory, IAsyncExecutionResultHandler callback, int data);
         // Add a write.
-        public abstract void AddWrite(SafeHandle handle, Memory<byte> memory, AsyncExecutionCallback callback, object? state, int data);
+        public abstract void AddWrite(SafeHandle handle, Memory<byte> memory, IAsyncExecutionResultHandler callback, int data);
         // Add a poll in.
-        public abstract void AddPollIn(SafeHandle handle, AsyncExecutionCallback asyncExecutionCallback, object? state, int data);
+        public abstract void AddPollIn(SafeHandle handle, IAsyncExecutionResultHandler asyncExecutionCallback, int data);
         // Add a poll out.
-        public abstract void AddPollOut(SafeHandle handle, AsyncExecutionCallback asyncExecutionCallback, object? state, int data);
+        public abstract void AddPollOut(SafeHandle handle, IAsyncExecutionResultHandler asyncExecutionCallback, int data);
         // Cancels an operation.
         public abstract void AddCancel(SafeHandle handle, int data);
-
-        // Indicates support for PollIn/Out and 0-byte reads.
-        public bool SupportsPolling { get; }
-
-        // Indicates operations may be added from different threads.
-        public bool IsThreadSafe { get; }
-
-        protected AsyncExecutionQueue(bool supportsPolling, bool isThreadSafe)
-        {
-            SupportsPolling = supportsPolling;
-            IsThreadSafe = isThreadSafe;
-        }
 
         abstract protected void Dispose(bool disposing);
 

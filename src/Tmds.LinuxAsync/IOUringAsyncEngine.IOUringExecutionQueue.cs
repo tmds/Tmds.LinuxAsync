@@ -46,8 +46,7 @@ namespace Tmds.LinuxAsync
                 public Memory<byte> Memory;
                 public MemoryHandle MemoryHandle;
 
-                public AsyncExecutionCallback? Callback;
-                public object? State;
+                public IAsyncExecutionResultHandler? ResultHandler;
 
                 public int Data;
 
@@ -64,8 +63,7 @@ namespace Tmds.LinuxAsync
             private readonly IntPtr _ioVectorTableMemory;
             private unsafe iovec* IoVectorTable => (iovec*)Align(_ioVectorTableMemory);
 
-            public unsafe IOUringExecutionQueue() :
-                base(supportsPolling: true, isThreadSafe: false)
+            public unsafe IOUringExecutionQueue()
             {
                 _operationPool = new Stack<Operation>();
                 _operations = new Dictionary<ulong, Operation>();
@@ -92,7 +90,7 @@ namespace Tmds.LinuxAsync
                 }
             }
 
-            public override void AddRead(SafeHandle handle, Memory<byte> memory, AsyncExecutionCallback callback, object? state, int data)
+            public override void AddRead(SafeHandle handle, Memory<byte> memory, IAsyncExecutionResultHandler callback, int data)
             {
                 // TODO: maybe consider writing directly to the sq
                 //       This requires handling sq full
@@ -103,8 +101,7 @@ namespace Tmds.LinuxAsync
                 operation.Handle = handle;
                 operation.Memory = memory;
                 operation.OperationType = OperationType.Read;
-                operation.Callback = callback;
-                operation.State = state;
+                operation.ResultHandler = callback;
                 operation.Data = data;
                 
                 // Since we can not do linked R/W in 5.5, we'll need to submit a poll first:
@@ -113,15 +110,14 @@ namespace Tmds.LinuxAsync
                 AddNewOperation(key, operation);
             }
 
-            public override void AddWrite(SafeHandle handle, Memory<byte> memory, AsyncExecutionCallback callback, object? state, int data)
+            public override void AddWrite(SafeHandle handle, Memory<byte> memory, IAsyncExecutionResultHandler callback, int data)
             {
                 ulong key = CalculateKey(handle, data);
                 Operation operation = RentOperation();
                 operation.Handle = handle;
                 operation.Memory = memory;
                 operation.OperationType = OperationType.Write;
-                operation.Callback = callback;
-                operation.State = state;
+                operation.ResultHandler = callback;
                 operation.Data = data;
                 
                 // Since we can not do linked R/W in 5.5, we'll need to submit a poll first:
@@ -130,26 +126,24 @@ namespace Tmds.LinuxAsync
                 AddNewOperation(key, operation);
             }
 
-            public override void AddPollIn(SafeHandle handle, AsyncExecutionCallback callback, object? state, int data)
+            public override void AddPollIn(SafeHandle handle, IAsyncExecutionResultHandler callback, int data)
             {
                 ulong key = CalculateKey(handle, data);
                 Operation operation = RentOperation();
                 operation.Handle = handle;
                 operation.OperationType = OperationType.PollIn;
-                operation.Callback = callback;
-                operation.State = state;
+                operation.ResultHandler = callback;
                 operation.Data = data;
                 AddNewOperation(key, operation);
             }
 
-            public override void AddPollOut(SafeHandle handle, AsyncExecutionCallback callback, object? state, int data)
+            public override void AddPollOut(SafeHandle handle, IAsyncExecutionResultHandler callback, int data)
             {
                 ulong key = CalculateKey(handle, data);
                 Operation operation = RentOperation();
                 operation.Handle = handle;
                 operation.OperationType = OperationType.PollOut;
-                operation.Callback = callback;
-                operation.State = state;
+                operation.ResultHandler = callback;
                 operation.Data = data;
                 AddNewOperation(key, operation);
             }
@@ -308,15 +302,14 @@ namespace Tmds.LinuxAsync
                         op.MemoryHandle.Dispose();
 
                         // Capture state
-                        object? state = op.State;
                         int data = op.Data;
-                        AsyncExecutionCallback callback = op.Callback!;
+                        IAsyncExecutionResultHandler handler = op.ResultHandler!;
 
                         // Return the operation
                         ReturnOperation(op);
 
                         // Complete
-                        callback(new AsyncOperationResult(completion.result), state, data);
+                        handler.HandleAsyncResult(new AsyncOperationResult(completion.result));
                     }
                 }
             }

@@ -129,19 +129,17 @@ namespace Tmds.LinuxAsync
             return true;
         }
 
-        public override AsyncExecutionResult TryExecuteAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, AsyncExecutionCallback? callback, object? state, int data)
+        public override AsyncExecutionResult TryExecuteEpollAsync(bool triggeredByPoll, AsyncExecutionQueue? executionQueue, IAsyncExecutionResultHandler callback)
         {
-            if (executionQueue != null && executionQueue.SupportsPolling == true)
-            {
-                Socket socket = Socket!;
-                executionQueue!.AddPollIn(socket.SafeHandle, callback!, state, data);
-                return AsyncExecutionResult.Executing;
-            }
-            else
-            {
-                bool finished = TryExecuteSync();
-                return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
-            }
+            bool finished = TryExecuteSync();
+            return finished ? AsyncExecutionResult.Finished : AsyncExecutionResult.WaitForPoll;
+        }
+
+        public override AsyncExecutionResult TryExecuteIOUringAsync(AsyncExecutionQueue executionQueue, IAsyncExecutionResultHandler callback, int key)
+        {
+            Socket socket = Socket!;
+            executionQueue!.AddPollIn(socket.SafeHandle, callback!, key);
+            return AsyncExecutionResult.Executing;
         }
 
         public override AsyncExecutionResult HandleAsyncResult(AsyncOperationResult asyncResult)
