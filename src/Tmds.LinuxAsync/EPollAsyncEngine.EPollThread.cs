@@ -237,10 +237,9 @@ namespace Tmds.LinuxAsync
                 {
                     if (_dummyReadBuffer == null)
                     {
-                        _dummyReadBuffer = GC.AllocateUninitializedArray<byte>(128, pinned: true);
+                        _dummyReadBuffer = new byte[128];
                     }
-                    Memory<byte> memory = MemoryMarshal.CreateFromPinnedArray(_dummyReadBuffer, 0, _dummyReadBuffer.Length);
-                    executionEngine.AddRead(_pipeReadEnd!, memory, this, data: 0);
+                    executionEngine.AddRead(_pipeReadEnd!, _dummyReadBuffer, this, data: 0);
                 }
             }
 

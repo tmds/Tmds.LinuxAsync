@@ -127,9 +127,6 @@ namespace Tmds.LinuxAsync
                             int fd = op.Handle.DangerousGetHandle().ToInt32(); // TODO: make safe
 
                             MemoryHandle handle = op.Memory.Pin();
-
-                            // TODO: In ASP.NET most buffers are pre-pinned. If we could detect that
-                            // we could not add them to the MemoryHandle List.
                             _memoryHandles.Add(handle);
 
                             aioCbs->aio_fildes = fd;

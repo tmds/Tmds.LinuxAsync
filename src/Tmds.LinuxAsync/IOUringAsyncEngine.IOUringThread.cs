@@ -20,7 +20,7 @@ namespace Tmds.LinuxAsync
             private readonly Thread _thread;
             private IOUringExecutionQueue? _iouring;
             private CloseSafeHandle? _eventFd;
-            private readonly byte[] _dummyReadBuffer = GC.AllocateUninitializedArray<byte>(8, pinned: true);
+            private readonly byte[] _dummyReadBuffer = new byte[8];
             private bool _disposed;
             private int _blockedState;
 
@@ -213,8 +213,7 @@ namespace Tmds.LinuxAsync
 
             private void AddReadFromEventFd()
             {
-                Memory<byte> memory = MemoryMarshal.CreateFromPinnedArray(_dummyReadBuffer, 0, _dummyReadBuffer.Length);
-                _iouring!.AddRead(_eventFd!, memory, this, 0);
+                _iouring!.AddRead(_eventFd!, _dummyReadBuffer, this, 0);
             }
 
             void IAsyncExecutionResultHandler.HandleAsyncResult(AsyncOperationResult asyncResult)
