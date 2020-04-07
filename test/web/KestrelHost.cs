@@ -2,6 +2,7 @@ using System.IO.Pipelines;
 using IoUring.Transport;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Tmds.LinuxAsync.Transport;
 
 namespace web
