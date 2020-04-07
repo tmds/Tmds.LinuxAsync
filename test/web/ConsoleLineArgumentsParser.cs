@@ -22,6 +22,9 @@ namespace web
 
         [Option('e', "engine", Required = false, Default = SocketEngineType.IOUring, HelpText = "EPoll/IOUring/IOUringTransport/LinuxTransport/DefaultTransport")]
         public SocketEngineType SocketEngine { get; set; }
+        
+        [Option("raw-socket", Default = false, HelpText = "St true for running a raw socket host without Kestrel")]
+        public bool RawSocket { get; set; }
 
         [Option('t', "thread-count", Required = false, Default = 1, HelpText = "Thread Count, default value is 1")]
         public int ThreadCount { get; set; }

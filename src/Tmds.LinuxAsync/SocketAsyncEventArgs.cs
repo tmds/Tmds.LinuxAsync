@@ -93,7 +93,9 @@ namespace Tmds.LinuxAsync
             }
             else
             {
-                throw new NotImplementedException();
+                _buffer = buffer;
+                _offset = offset;
+                _count = count;
             }
         }
 

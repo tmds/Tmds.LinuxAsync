@@ -1,3 +1,4 @@
+using System;
 using System.Net.Sockets;
 using System.Threading;
 
@@ -11,7 +12,8 @@ namespace Tmds.LinuxAsync
         {
             StartOperationCommon(socket, SocketAsyncOperation.Receive);
             var op = (_operation as SaeaReceiveOperation) ?? new SaeaReceiveOperation(this);
-            op.Configure(socket, MemoryBuffer, BufferList);
+            Memory<byte> buffer = MemoryBuffer.Slice(_offset, _count);
+            op.Configure(socket, buffer, BufferList);
             _operation = op;
             return op;
         }
@@ -20,7 +22,8 @@ namespace Tmds.LinuxAsync
         {
             StartOperationCommon(socket, SocketAsyncOperation.Send);
             var op = (_operation as SaeaSendOperation) ?? new SaeaSendOperation(this);
-            op.Configure(socket, MemoryBuffer, BufferList);
+            Memory<byte> buffer = MemoryBuffer.Slice(_offset, _count);
+            op.Configure(socket, buffer, BufferList);
             _operation = op;
             return op;
         }
