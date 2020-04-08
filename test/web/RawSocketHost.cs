@@ -33,7 +33,7 @@ namespace web
             ConfigurationBuilder bld = new ConfigurationBuilder();
             bld.AddCommandLine(_args);
             var cfg = bld.Build();
-            string url = cfg["urls"];
+            string url = cfg["urls"] ?? cfg["server.urls"];
 
             string[] data = url.Substring(7).Split(':');
             IPAddress ip = IPAddress.Parse(data[0]);
