@@ -6,11 +6,11 @@ using SocketAsyncEventArgs = Tmds.LinuxAsync.SocketAsyncEventArgs;
 
 namespace web
 {
-    public partial class RawSocketHost<TSocket, TSocketEventArgs>
+    public partial class RawSocketHost<TSocket, TSocketEventArgs, TSocketHandler>
     {
         private class ClientConnectionHandler
         {
-            private readonly ISocketHandler<TSocket, TSocketEventArgs> _socketHandler;
+            private readonly TSocketHandler _socketHandler;
             private readonly TSocket _socket;
             private readonly byte[] _sendBuffer = Encoding.ASCII.GetBytes(Response);
             private readonly byte[] _receiveBuffer = new byte[BufferSize];
@@ -19,7 +19,7 @@ namespace web
             private readonly TSocketEventArgs _receiveArgs;
             private readonly TSocketEventArgs _sendArgs;
 
-            public ClientConnectionHandler(TSocket socket, ISocketHandler<TSocket, TSocketEventArgs> socketHandler, 
+            public ClientConnectionHandler(TSocket socket, TSocketHandler socketHandler, 
                 bool deferSends, bool deferReceives, bool runContinuationsAsynchronously)
             {
                 _socket = socket;

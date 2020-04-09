@@ -28,13 +28,13 @@ namespace web
                     if (options.SocketEngine == SocketEngineType.DefaultTransport)
                     {
                         var handler = new SystemNetSocketHandler();
-                        var host = new RawSocketHost<Socket, SocketAsyncEventArgs>(options, args, handler);
+                        var host = new RawSocketHost<Socket, SocketAsyncEventArgs, SystemNetSocketHandler>(options, args, handler);
                         host.Run();
                     }
                     else
                     {
                         var handler = new TmdsSocketHandler();
-                        var host = new RawSocketHost<Tmds.LinuxAsync.Socket, Tmds.LinuxAsync.SocketAsyncEventArgs>(options, args, handler);
+                        var host = new RawSocketHost<Tmds.LinuxAsync.Socket, Tmds.LinuxAsync.SocketAsyncEventArgs, TmdsSocketHandler>(options, args, handler);
                         host.Run();
                     }
                 }

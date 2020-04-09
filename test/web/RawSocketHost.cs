@@ -10,11 +10,12 @@ using Socket = Tmds.LinuxAsync.Socket;
 
 namespace web
 {
-    public partial class RawSocketHost<TSocket, TSocketEventArgs>
+    public partial class RawSocketHost<TSocket, TSocketEventArgs, TSocketHandler>
         where TSocket : IDisposable
         where TSocketEventArgs : IDisposable
+        where TSocketHandler : struct, ISocketHandler<TSocket, TSocketEventArgs>
     {
-        private readonly ISocketHandler<TSocket, TSocketEventArgs> _socketHandler;
+        private readonly TSocketHandler _socketHandler;
         private const int BufferSize = 512;
         private const string Response =
             "HTTP/1.1 200 OK\r\nDate: Tue, 31 Mar 2020 14:49:06 GMT\r\nContent-Type: application/json\r\nServer: Kestrel\r\nContent-Length: 27\r\n\r\n{\"message\":\"Hello, World!\"}";
@@ -26,7 +27,7 @@ namespace web
 
         private IPEndPoint _serverEndpoint;
 
-        public RawSocketHost(CommandLineOptions options, string[] args, ISocketHandler<TSocket, TSocketEventArgs> socketHandler)
+        public RawSocketHost(CommandLineOptions options, string[] args, TSocketHandler socketHandler)
         {
             _options = options;
             _args = args;
