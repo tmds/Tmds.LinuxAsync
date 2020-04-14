@@ -10,6 +10,7 @@ using SocketAsyncEventArgs = System.Net.Sockets.SocketAsyncEventArgs;
 #if RELEASE
 using Microsoft.Extensions.Logging;
 #endif
+using web;
 
 namespace web
 {
@@ -23,7 +24,11 @@ namespace web
             {
                 AsyncEngine.SocketEngine = CreateAsyncEngine(options);
 
-                if (options.RawSocket)
+                if (options.Platform == true)
+                {
+                    PlatformBenchmarks.Program.PlatformMain(args, options);
+                }
+                else if (options.RawSocket == true)
                 {
                     if (options.SocketEngine == SocketEngineType.DefaultTransport)
                     {
