@@ -5,6 +5,8 @@ using Tmds.LinuxAsync;
 using IoUring.Transport;
 using System.IO.Pipelines;
 using Tmds.LinuxAsync.Transport;
+using Socket = System.Net.Sockets.Socket;
+using SocketAsyncEventArgs = System.Net.Sockets.SocketAsyncEventArgs;
 #if RELEASE
 using Microsoft.Extensions.Logging;
 #endif
@@ -23,8 +25,18 @@ namespace web
 
                 if (options.RawSocket)
                 {
-                    RawSocketHost host = new RawSocketHost(options, args);
-                    host.Run();
+                    if (options.SocketEngine == SocketEngineType.DefaultTransport)
+                    {
+                        var handler = new SystemNetSocketHandler();
+                        var host = new RawSocketHost<Socket, SocketAsyncEventArgs, SystemNetSocketHandler>(options, args, handler);
+                        host.Run();
+                    }
+                    else
+                    {
+                        var handler = new TmdsSocketHandler();
+                        var host = new RawSocketHost<Tmds.LinuxAsync.Socket, Tmds.LinuxAsync.SocketAsyncEventArgs, TmdsSocketHandler>(options, args, handler);
+                        host.Run();
+                    }
                 }
                 else
                 {
