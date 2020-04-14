@@ -81,4 +81,4 @@ Setting `OutputScheduler` to `IOQueue`/`IOThread`/`ThreadPool` defers write oper
 Setting `ApplicationCodeIsNonBlocking` to `true` causes reads from ASP.NET Core to not get deferred to the `ThreadPool`.
 **Note** something in ASP.NET Core still defers the HTTP Handler to run on the `ThreadPool`.
 
-Setting `DontAllocateMemoryForIdleConnections` to `false` will allocate a buffer for every connection up-front. For idle connections, this is a waste of memory. Setting this to `true` eliminates a syscall to wait for data to be available.
+Setting `DontAllocateMemoryForIdleConnections` to `false` will allocate a buffer for every connection up-front. For idle connections, this is a waste of memory, but it eliminates a syscall to wait for data to be available.
