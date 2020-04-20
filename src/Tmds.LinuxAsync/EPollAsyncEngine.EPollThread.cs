@@ -103,15 +103,21 @@ namespace Tmds.LinuxAsync
                             }
                         }
 
+                        int socketEventsPerWait = 0;
                         for (int i = 0; i < rv; i++)
                         {
                             EPollAsyncContext? context = asyncContextsForEvents[i];
                             if (context != null)
                             {
+                                socketEventsPerWait++;
                                 context.HandleEvents(eventBuffer[i].events);
                             }
                         }
                         asyncContextsForEvents.Clear();
+                        if (socketEventsPerWait != 0)
+                        {
+                            SocketsEventSource.Log.SocketEventsPerWait(socketEventsPerWait);
+                        }
 
                         bool actionsRemaining = false;
 
