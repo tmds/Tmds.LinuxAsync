@@ -116,7 +116,7 @@ namespace Tmds.LinuxAsync
                         asyncContextsForEvents.Clear();
                         if (socketEventsPerWait != 0)
                         {
-                            SocketsEventSource.Log.SocketEventsPerWait(socketEventsPerWait);
+                            SocketsEventSource.SocketEventsPerWait(socketEventsPerWait);
                         }
 
                         bool actionsRemaining = false;

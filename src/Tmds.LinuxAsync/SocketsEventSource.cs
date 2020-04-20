@@ -12,9 +12,9 @@ namespace Tmds.LinuxAsync
             _socketEventsPerWait = new EventCounter("EventsPerWait", this);
         }
 
-        public void SocketEventsPerWait(int eventsCount)
-            => _socketEventsPerWait.WriteMetric(eventsCount);
+        private static readonly SocketsEventSource s_source = new SocketsEventSource();
 
-        public static readonly SocketsEventSource Log = new SocketsEventSource();
+        public static void SocketEventsPerWait(int eventsCount)
+            => s_source._socketEventsPerWait.WriteMetric(eventsCount);
     }
 }
